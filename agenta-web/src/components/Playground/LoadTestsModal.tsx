@@ -1,6 +1,5 @@
-import {loadTestset, useLoadTestsetsList} from "@/lib/services/api"
-import {Button, Divider, Dropdown, Modal, Select, Space} from "antd"
-import {useRouter} from "next/router"
+import {fetchTestset, useLoadTestsetsList} from "@/services/testsets/api"
+import {Button, Divider, Modal, Select} from "antd"
 import {PropsWithChildren, useState} from "react"
 import {createUseStyles} from "react-jss"
 
@@ -24,13 +23,10 @@ const useStyles = createUseStyles({
 const LoadTestsModal: React.FC<Props> = (props) => {
     const classes = useStyles()
     const {onLoad} = props
-    const router = useRouter()
     const [isOpen, setIsOpen] = useState(false)
     const [selectedSet, setSelectedSet] = useState<string>("")
 
-    const appId = router.query.app_id as string
-
-    const {testsets, isTestsetsLoading, isTestsetsLoadingError} = useLoadTestsetsList(appId)
+    const {testsets, isTestsetsLoading, isTestsetsLoadingError} = useLoadTestsetsList()
 
     const options = testsets?.map((item: Record<string, any>) => ({
         label: item.name,
@@ -38,7 +34,7 @@ const LoadTestsModal: React.FC<Props> = (props) => {
     }))
 
     const handleClick = (shouldReplace: boolean) => {
-        loadTestset(selectedSet).then((data) => {
+        fetchTestset(selectedSet).then((data) => {
             onLoad(data.csvdata, shouldReplace)
         })
         setIsOpen(false)

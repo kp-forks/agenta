@@ -1,14 +1,10 @@
-import agenta
+import agenta as ag
 
 
-def set_global(setup=None, config=None):
-    """Allows usage of agenta.config and agenta.setup in the user's code.
+def set_global(config=None, tracing=None):
+    """Allows usage of agenta.config and agenta.tracing in the user's code."""
 
-    Args:
-        setup: _description_. Defaults to None.
-        config: _description_. Defaults to None.
-    """
-    if setup is not None:
-        agenta.setup = setup
     if config is not None:
-        agenta.config = config
+        ag.config = config
+    if tracing is not None:
+        ag.tracing = tracing

@@ -28,19 +28,24 @@ describe("App Navigation without errors", () => {
         cy.get('[data-cy="app-testset-list"]').should("exist")
     })
 
-    it("should navigate successfully to Evaluations", () => {
+    it("should navigate successfully to Evaluations page", () => {
         cy.clickLinkAndWait('[data-cy="app-evaluations-link"]')
-        cy.location("pathname").should("include", "/evaluations")
-        //TOOD add more assertions specific to the new evaluations page
-    })
+        cy.url().should("include", "/evaluations")
+        cy.contains(/evaluations/i)
 
-    it("should navigate successfully to Annotations", () => {
-        cy.clickLinkAndWait('[data-cy="app-annotations-link"]')
-        cy.location("pathname").should("include", "/annotations")
+        cy.get(".ant-tabs-tab").eq(1).click()
+        cy.url().should("include", "/evaluations?selectedEvaluation=human_annotation")
+
+        cy.get(".ant-tabs-tab").eq(2).click()
+        cy.url().should("include", "/evaluations?selectedEvaluation=human_ab_testing")
+
+        cy.get(".ant-tabs-tab").eq(0).click()
+        cy.url().should("include", "/evaluations?selectedEvaluation=auto_evaluation")
     })
 
     if (isDemo()) {
         it("should navigate successfully to Endpoints", () => {
+            cy.clickLinkAndWait('[data-cy="app-deployment-link"]')
             cy.clickLinkAndWait('[data-cy="app-endpoints-link"]')
             cy.location("pathname").should("include", "/endpoints")
             cy.get('[data-cy="endpoints"]').within(() => {

@@ -12,7 +12,7 @@ import {
     FullscreenOutlined,
     InfoCircleOutlined,
 } from "@ant-design/icons"
-import {ICellRendererParams} from "ag-grid-community"
+import {type ICellRendererParams} from "@ag-grid-community/core"
 import {GlobalToken, Space, Tooltip, Typography, message, theme} from "antd"
 import dayjs from "dayjs"
 import relativeTime from "dayjs/plugin/relativeTime"
@@ -71,7 +71,7 @@ const useStyles = createUseStyles((theme: JSSTheme) => ({
     },
 }))
 
-export function LongTextCellRenderer(params: ICellRendererParams) {
+export function LongTextCellRenderer(params: ICellRendererParams, output?: any) {
     const {value, api, node} = params
     const [expanded, setExpanded] = useState(
         node.rowHeight !== api.getSizesForCurrentTheme().rowHeight,
@@ -85,7 +85,7 @@ export function LongTextCellRenderer(params: ICellRendererParams) {
                 message.success("Copied to clipboard")
             })
             .catch(console.error)
-    }, [])
+    }, [value])
 
     const onExpand = useCallback(() => {
         const cells = document.querySelectorAll(`[row-id='${node.id}'] .ag-cell > *`)
@@ -99,7 +99,7 @@ export function LongTextCellRenderer(params: ICellRendererParams) {
                 )
             })
             const height = Math.max(...cellsArr.map((cell) => cell.scrollHeight))
-            node.setRowHeight(height <= defaultHeight ? defaultHeight * 2 : height)
+            node.setRowHeight(height <= defaultHeight ? defaultHeight * 2 : height + 10)
         } else {
             cellsArr.forEach((cell) => {
                 cell.setAttribute(
@@ -110,20 +110,20 @@ export function LongTextCellRenderer(params: ICellRendererParams) {
             node.setRowHeight(defaultHeight)
         }
         api.onRowHeightChanged()
-    }, [expanded])
+    }, [expanded, api, node])
 
     useEffect(() => {
         node.addEventListener("heightChanged", () => {
             setExpanded(node.rowHeight !== api.getSizesForCurrentTheme().rowHeight)
         })
-    }, [])
+    }, [api, node])
 
     return (
         <div
             className={classes.longCell}
-            style={expanded ? {textWrap: "wrap", lineHeight: "2em", paddingTop: 6.5} : undefined}
+            style={expanded ? {textWrap: "wrap", paddingTop: 6.5} : undefined}
         >
-            {value}
+            {output ? output : value}
             <Space align="center" size="middle">
                 {expanded ? (
                     <FullscreenExitOutlined onClick={onExpand} />
@@ -137,47 +137,57 @@ export function LongTextCellRenderer(params: ICellRendererParams) {
 }
 
 export const ResultRenderer = React.memo(
-    (params: ICellRendererParams<_EvaluationScenario> & {config: EvaluatorConfig}) => {
+    (
+        params: ICellRendererParams<_EvaluationScenario> & {
+            config: EvaluatorConfig
+        },
+    ) => {
         const result = params.data?.results.find(
             (item) => item.evaluator_config === params.config.id,
         )?.result
-        let errorMsg = ""
-        if (result?.type === "error") {
-            errorMsg = `${result?.error?.message}\n${result?.error?.stacktrace}`
-        }
 
-        return (
-            <Typography.Text type={errorMsg ? "danger" : undefined}>
-                {errorMsg || getTypedValue(result)}
-            </Typography.Text>
-        )
+        return <Typography.Text>{getTypedValue(result)}</Typography.Text>
     },
     (prev, next) => prev.value === next.value,
 )
 
 export const runningStatuses = [EvaluationStatus.INITIALIZED, EvaluationStatus.STARTED]
-export const statusMapper = (token: GlobalToken) => ({
-    [EvaluationStatus.INITIALIZED]: {
-        label: "Queued",
-        color: token.colorTextSecondary,
-    },
-    [EvaluationStatus.STARTED]: {
-        label: "Running",
-        color: token.colorWarning,
-    },
-    [EvaluationStatus.FINISHED]: {
-        label: "Completed",
-        color: token.colorSuccess,
-    },
-    [EvaluationStatus.ERROR]: {
-        label: "Failed",
-        color: token.colorError,
-    },
-    [EvaluationStatus.FINISHED_WITH_ERRORS]: {
-        label: "Completed with Errors",
-        color: token.colorWarning,
-    },
-})
+export const statusMapper = (token: GlobalToken) => (status: EvaluationStatus) => {
+    const statusMap = {
+        [EvaluationStatus.INITIALIZED]: {
+            label: "Queued",
+            color: token.colorTextSecondary,
+        },
+        [EvaluationStatus.STARTED]: {
+            label: "Running",
+            color: token.colorWarning,
+        },
+        [EvaluationStatus.FINISHED]: {
+            label: "Completed",
+            color: token.colorSuccess,
+        },
+        [EvaluationStatus.ERROR]: {
+            label: "Failed",
+            color: token.colorError,
+        },
+        [EvaluationStatus.FINISHED_WITH_ERRORS]: {
+            label: "Completed with Errors",
+            color: token.colorWarning,
+        },
+        [EvaluationStatus.AGGREGATION_FAILED]: {
+            label: "Result Aggregation Failed",
+            color: token.colorWarning,
+        },
+    }
+
+    return (
+        statusMap[status] || {
+            label: "Unknown",
+            color: "purple",
+        }
+    )
+}
+
 export const StatusRenderer = React.memo(
     (params: ICellRendererParams<_Evaluation>) => {
         const classes = useStyles()
@@ -186,8 +196,9 @@ export const StatusRenderer = React.memo(
             params.data?.duration || 0,
             runningStatuses.includes(params.value),
         )
-        const {label, color} = statusMapper(token)[params.value.value as EvaluationStatus]
+        const {label, color} = statusMapper(token)(params.data?.status.value as EvaluationStatus)
         const errorMsg = params.data?.status.error?.message
+        const errorStacktrace = params.data?.status.error?.stacktrace
 
         return (
             <Typography.Text className={classes.statusCell}>
@@ -195,7 +206,7 @@ export const StatusRenderer = React.memo(
                 <span>{label}</span>
                 {errorMsg && (
                     <span style={{marginRight: 2}}>
-                        <Tooltip title={errorMsg}>
+                        <Tooltip title={errorStacktrace ? errorStacktrace : ""}>
                             <InfoCircleOutlined />
                         </Tooltip>
                     </span>

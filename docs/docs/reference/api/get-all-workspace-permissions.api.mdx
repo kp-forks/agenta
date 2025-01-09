@@ -1,0 +1,108 @@
+---
+id: get-all-workspace-permissions
+title: "Get All Workspace Permissions"
+description: "Get all workspace permissions."
+sidebar_label: "Get All Workspace Permissions"
+hide_title: true
+hide_table_of_contents: true
+api: eJztVU1z2jAQ/SsanRmgOXIq7WSSTHtgknR6IIxHyAsokSVXkkmoh//eXeEP4SRtfkC5YD+9ffuh3XXNc/DSqTIoa/iMX0FgQmv2bN2TL4UEVoIrlPd47McP5sHcQqic8UwwrXxgdhP5Yi+UFmsN/7acPRiGv+9ovVx0lNWMzTvFHmZ2/QgyeOagdODBBGW2LOzgYx6F8tA6vL6/X1y+SIipztjNhmQcMIW5GAbOWYdeglOwb328rcxH3OK7IJ2bHIu2hZBhEbKOniV0ZGPgJT6B57OaX0yn9Hde9rtKSvB+U2l225DRTloTMGOii7LUSkaXk0dPNjX3cgeFoCcVoIji4VACynnMwmxRAUxV8NkSIxB55g8eeYjuFTxniSIRcxUGkESjAAMwBw2vwJ6Z7YVTAkNOmQlY2FxtDi2QYYIbta1OpfRvyifGbdgZmL1y1hRYmyyHUtsDPSZZvM9IQn2XE/0E8MFDJ9q/Ngo90MTcA9Ee9kJXbYFcZRLAt6JnnEb3DGukBxiFOriB6LJrv1Y/BRr5FGrUU6i5n8qDy5zVQKGKPM8Mykcw2NdurNsKo34Pgh6gQ5Wz49WIBxU0tW4/+vw4avtZOCcOvCe1M8JoXc1x/fzsBnWRTN6RfpgUhJ1t5hRFShF2+DLp8vCT83HFCPfgcJ6WNa+cRu4uhNLPJhOpbZWPxRb7RIyFmohSxYTTUZ7HU/aVqPy4IjlZORUOUW++uPkGh2scR3AIrFLCHc3zaUmc07q5Rn8Io0sjCnqfV5iZ64usKIDdyYoyV2Zjo3lTtya2L0I+gcmpbzDPU9jT8afx9L1kGgOGYTVrSci4lto4Ig2PzsvVFYo6pcB1jWcBRPG5P6AoS+tDIUyi9/drHQRZ93vy/+frY5+vpp0CvIRJqYWKsxbvrm7GY8n78aCZScqPHbvDGyNOXa+Fhx9OH48E/6rAUZvjY9zaa2o67PFR25M0AU/YwNgxkjKhDsTVdmrtwQeOJqOb3KvLe2yVP062JAI=
+sidebar_class_name: "get api-method"
+info_path: reference/api/agenta-backend
+custom_edit_url: null
+---
+
+import ApiTabs from "@theme/ApiTabs";
+import DiscriminatorTabs from "@theme/DiscriminatorTabs";
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import SecuritySchemes from "@theme/ApiExplorer/SecuritySchemes";
+import MimeTabs from "@theme/MimeTabs";
+import ParamsItem from "@theme/ParamsItem";
+import ResponseSamples from "@theme/ResponseSamples";
+import SchemaItem from "@theme/SchemaItem";
+import SchemaTabs from "@theme/SchemaTabs";
+import Markdown from "@theme/Markdown";
+import Heading from "@theme/Heading";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+
+<Heading as={"h1"} className={"openapi__heading"} children={"Get All Workspace Permissions"}></Heading>
+
+<MethodEndpoint method={"get"} path={"/workspaces/permissions"}></MethodEndpoint>
+
+Get all workspace permissions.
+
+Returns a list of all available workspace permissions.
+
+Returns:
+List[Permission]: A list of Permission objects representing the available workspace permissions.
+
+Raises:
+HTTPException: If there is an error retrieving the workspace permissions.
+
+<div>
+  <div>
+    <ApiTabs label={undefined} id={undefined}>
+      <TabItem label={"200"} value={"200"}>
+        <div>Successful Response</div>
+        <div>
+          <MimeTabs className={"openapi-tabs__mime"} schemaType={"response"}>
+            <TabItem label={"application/json"} value={"application/json"}>
+              <SchemaTabs className={"openapi-tabs__schema"}>
+                <TabItem label={"Schema"} value={"Schema"}>
+                  <details
+                    style={{}}
+                    className={"openapi-markdown__details response"}
+                    data-collapsed={false}
+                    open={true}
+                  >
+                    <summary style={{}} className={"openapi-markdown__details-summary-response"}>
+                      <strong>Schema</strong>
+                    </summary>
+                    <div style={{ textAlign: "left", marginLeft: "1rem" }}></div>
+                    <ul style={{ marginLeft: "1rem" }}>
+                      <li>
+                        <div
+                          style={{
+                            fontSize: "var(--ifm-code-font-size)",
+                            opacity: "0.6",
+                            marginLeft: "-.5rem",
+                            paddingBottom: ".5rem",
+                          }}
+                        >
+                          Array [
+                        </div>
+                      </li>
+                      <div style={{ marginTop: ".5rem", marginBottom: ".5rem" }}>
+                        string
+                        <div style={{ paddingTop: "1rem" }}>
+                          **Possible values:** [`read_system`, `view_application`, `edit_application`,
+                          `create_application`, `delete_application`, `create_app_variant`, `delete_app_variant`,
+                          `modify_variant_configurations`, `delete_application_variant`,
+                          `view_app_environment_deployment`, `edit_app_environment_deployment`,
+                          `create_app_environment_deployment`, `view_testset`, `edit_testset`, `create_testset`,
+                          `delete_testset`, `view_evaluation`, `run_evaluations`, `edit_evaluation`,
+                          `create_evaluation`, `delete_evaluation`, `deploy_application`, `view_workspace`,
+                          `edit_workspace`, `create_workspace`, `delete_workspace`, `modify_user_roles`,
+                          `add_new_user_to_workspace`, `edit_organization`, `delete_organization`,
+                          `add_new_user_to_organization`]
+                        </div>
+                      </div>
+                      <li>
+                        <div style={{ fontSize: "var(--ifm-code-font-size)", opacity: "0.6", marginLeft: "-.5rem" }}>
+                          ]
+                        </div>
+                      </li>
+                    </ul>
+                  </details>
+                </TabItem>
+                <TabItem label={"Example (from schema)"} value={"Example (from schema)"}>
+                  <ResponseSamples responseExample={'[\n  "read_system"\n]'} language={"json"}></ResponseSamples>
+                </TabItem>
+              </SchemaTabs>
+            </TabItem>
+          </MimeTabs>
+        </div>
+      </TabItem>
+    </ApiTabs>
+  </div>
+</div>

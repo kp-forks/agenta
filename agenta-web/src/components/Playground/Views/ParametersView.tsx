@@ -1,20 +1,22 @@
 import {Environment, IPromptRevisions, Parameter, Variant} from "@/lib/Types"
 import type {CollapseProps} from "antd"
 import {Button, Col, Collapse, Row, Space, Tooltip, message} from "antd"
-import React, {useContext, useEffect, useState} from "react"
+import React, {useEffect, useState} from "react"
 import {createUseStyles} from "react-jss"
 import {ModelParameters, ObjectParameters, StringParameters} from "./ParametersCards"
 import PublishVariantModal from "./PublishVariantModal"
-import {promptVersioning, removeVariant} from "@/lib/services/api"
+import {deleteSingleVariant} from "@/services/playground/api"
 import {CloudUploadOutlined, DeleteOutlined, HistoryOutlined, SaveOutlined} from "@ant-design/icons"
-import {usePostHogAg} from "@/hooks/usePostHogAg"
+import {usePostHogAg} from "@/lib/helpers/analytics/hooks/usePostHogAg"
 import {isDemo} from "@/lib/helpers/utils"
 import {useQueryParam} from "@/hooks/useQuery"
-import {dynamicComponent} from "@/lib/helpers/dynamic"
+import {dynamicComponent, dynamicService} from "@/lib/helpers/dynamic"
+import {checkIfResourceValidForDeletion} from "@/lib/helpers/evaluate"
 
 const PromptVersioningDrawer: any = dynamicComponent(
     `PromptVersioningDrawer/PromptVersioningDrawer`,
 )
+const promptVersioning: any = dynamicService("promptVersioning/api")
 
 interface Props {
     variant: Variant
@@ -99,10 +101,6 @@ const ParametersView: React.FC<Props> = ({
     const [revisionNum, setRevisionNum] = useQueryParam("revision")
     const [promptRevisions, setPromptRevisions] = useState<IPromptRevisions[]>([])
 
-    useEffect(() => {
-        onStateChange(variant.persistent === false)
-    }, [])
-
     const onChange = (param: Parameter, newValue: number | string) => {
         handleParamChange(param.name, newValue)
     }
@@ -130,18 +128,28 @@ const ParametersView: React.FC<Props> = ({
                 onStateChange(false)
                 res(true)
             })
-            posthog.capture("variant_saved", {variant_id: variant.variantId})
+            posthog?.capture?.("variant_saved", {variant_id: variant.variantId})
         })
     }
 
-    const handleDelete = () => {
-        deleteVariant(() => {
-            if (variant.persistent) {
-                return removeVariant(variant.variantId).then(() => {
-                    onStateChange(false)
-                })
-            }
-        })
+    const handleDelete = async () => {
+        try {
+            if (
+                !(await checkIfResourceValidForDeletion({
+                    resourceType: "variant",
+                    resourceIds: [variant.variantId],
+                }))
+            )
+                return
+
+            deleteVariant(() => {
+                if (variant.persistent) {
+                    return deleteSingleVariant(variant.variantId).then(() => {
+                        onStateChange(false)
+                    })
+                }
+            })
+        } catch {}
     }
 
     useEffect(() => {
@@ -155,14 +163,17 @@ const ParametersView: React.FC<Props> = ({
         setHistoryStatus({loading: true, error: false})
         setIsDrawerOpen(true)
         try {
-            if (variant.variantId && isDemo()) {
-                const revisions = await promptVersioning(variant.variantId)
-                setPromptRevisions(revisions)
-            }
+            await promptVersioning.then(async (module: any) => {
+                if (!module) return
+                if (variant.variantId && isDemo()) {
+                    const revisions = await module.fetchAllPromptVersioning(variant.variantId)
+                    setPromptRevisions(revisions)
+                }
+            })
             setHistoryStatus({loading: false, error: false})
         } catch (error) {
             setHistoryStatus({loading: false, error: true})
-            console.log(error)
+            console.error(error)
         }
     }
 

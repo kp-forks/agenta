@@ -4,19 +4,28 @@ from typing import List, Optional, Union
 from fastapi.responses import JSONResponse
 from fastapi import Request, UploadFile, HTTPException
 
+
 from agenta_backend.services import db_manager
-from agenta_backend.utils.common import APIRouter, isCloudEE, isCloud, isEE
+from agenta_backend.utils.common import (
+    APIRouter,
+    isCloudEE,
+    isCloudProd,
+    isCloudDev,
+    isEE,
+)
 
 if isCloudEE():
-    from agenta_backend.commons.models.db_models import Permission
+    from agenta_backend.commons.models.shared_models import Permission
     from agenta_backend.commons.utils.permissions import check_action_access
     from agenta_backend.commons.models.api.api_models import Image_ as Image
 else:
     from agenta_backend.models.api.api_models import Image
 
 
-if isCloud():
+if isCloudProd():
     from agenta_backend.cloud.services import container_manager
+elif isCloudDev():
+    from agenta_backend.services import container_manager
 elif isEE():
     from agenta_backend.ee.services import container_manager
 else:
@@ -57,12 +66,10 @@ async def build_image(
     """
     try:
         app_db = await db_manager.fetch_app_by_id(app_id)
-
-        # Check app access
         if isCloudEE():
             has_permission = await check_action_access(
                 user_uid=request.state.user_id,
-                object=app_db,
+                project_id=str(app_db.project_id),
                 permission=Permission.CREATE_APPLICATION,
             )
             if not has_permission:
@@ -95,9 +102,10 @@ async def restart_docker_container(
         payload (RestartAppContainer) -- the required data (app_name and variant_name)
     """
     logger.debug(f"Restarting container for variant {payload.variant_id}")
+
     app_variant_db = await db_manager.fetch_app_variant_by_id(payload.variant_id)
     try:
-        deployment = await db_manager.get_deployment_by_objectid(
+        deployment = await db_manager.get_deployment_by_id(
             app_variant_db.base.deployment
         )
         container_id = deployment.container_id
@@ -150,40 +158,58 @@ async def construct_app_container_url(
     Raises:
         HTTPException: If the base or variant cannot be found or the user does not have access.
     """
-    # assert that one of base_id or variant_id is provided
-    assert base_id or variant_id, "Please provide either base_id or variant_id"
-
-    if base_id:
-        object_db = await db_manager.fetch_base_by_id(base_id)
-    elif variant_id:
-        object_db = await db_manager.fetch_app_variant_by_id(variant_id)
-
-    # Check app access
-    if isCloudEE():
-        has_permission = await check_action_access(
-            user_uid=request.state.user_id,
-            object=object_db,
-            permission=Permission.VIEW_APPLICATION,
-        )
-        if not has_permission:
-            error_msg = f"You do not have permission to perform this action. Please contact your organization admin."
-            logger.error(error_msg)
-            raise HTTPException(status_code=403, detail=error_msg)
-
     try:
-        if getattr(object_db, "deployment", None):  # this is a base
-            deployment = await db_manager.get_deployment_by_objectid(
-                object_db.deployment
+        # assert that one of base_id or variant_id is provided
+        assert base_id or variant_id, "Please provide either base_id or variant_id"
+
+        if base_id:
+            object_db = await db_manager.fetch_base_by_id(base_id)
+        elif variant_id and variant_id != "None":
+            # NOTE: Backward Compatibility
+            # ---------------------------
+            # When a user creates a human evaluation with a variant and later deletes the variant,
+            # the human evaluation page becomes inaccessible due to the backend raising a
+            # "'NoneType' object has no attribute 'variant_id'" error. To suppress this error,
+            # we will return the string "None" as the ID of the variant.
+            # This change ensures that users can still view their evaluations; however,
+            # they will no longer be able to access a deployment URL for the deleted variant.
+            # Therefore, we ensure that variant_id is not "None".
+            object_db = await db_manager.fetch_app_variant_by_id(variant_id)
+        else:
+            # NOTE: required for backward compatibility
+
+            object_db = None
+
+        # Check app access
+        if isCloudEE() and object_db is not None:
+            has_permission = await check_action_access(
+                user_uid=request.state.user_id,
+                project_id=str(object_db.project_id),
+                permission=Permission.VIEW_APPLICATION,
             )
-        elif getattr(object_db.base, "deployment", None):  # this is a variant
-            deployment = await db_manager.get_deployment_by_objectid(
-                object_db.base.deployment
+
+            if not has_permission:
+                error_msg = f"You do not have permission to perform this action. Please contact your organization admin."
+                logger.error(error_msg)
+
+                raise HTTPException(status_code=403, detail=error_msg)
+
+        if getattr(object_db, "deployment_id", None):  # this is a base
+            deployment = await db_manager.get_deployment_by_id(
+                str(object_db.deployment_id)  # type: ignore
+            )
+        elif getattr(object_db, "base_id", None):  # this is a variant
+            deployment = await db_manager.get_deployment_by_id(
+                str(object_db.base.deployment_id)  # type: ignore
             )
         else:
             raise HTTPException(
                 status_code=400,
                 detail="Deployment not found",
             )
+
         return URI(uri=deployment.uri)
     except Exception as e:
-        return JSONResponse({"message": str(e)}, status_code=500)
+        status_code = e.status_code if hasattr(e, "status_code") else 500
+
+        return JSONResponse({"detail": str(e)}, status_code=status_code)

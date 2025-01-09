@@ -1,11 +1,10 @@
-import logging
 import os
-from typing import Dict
+import logging
+from typing import Dict, Optional
 
-from agenta_backend.config import settings
 from agenta_backend.utils.common import isCloudEE
 from agenta_backend.models.api.api_models import Image
-from agenta_backend.models.db_models import AppVariantDB, DeploymentDB, ImageDB
+from agenta_backend.models.db_models import AppVariantDB, DeploymentDB
 from agenta_backend.services import db_manager, docker_utils
 from docker.errors import DockerException
 
@@ -13,14 +12,18 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
+agenta_registry_repo = os.getenv("REGISTRY_REPO_NAME")
+
+
 async def start_service(
-    app_variant_db: AppVariantDB, env_vars: Dict[str, str]
+    app_variant_db: AppVariantDB, project_id: str, env_vars: Dict[str, str]
 ) -> DeploymentDB:
     """
     Start a service.
 
     Args:
         app_variant_db (AppVariantDB): The app variant to start.
+        project_id (str): The ID of the project the app variant belongs to.
         env_vars (Dict[str, str]): The environment variables to pass to the container.
 
     Returns:
@@ -28,11 +31,12 @@ async def start_service(
     """
 
     if isCloudEE():
-        uri_path = f"{app_variant_db.organization.id}/{app_variant_db.app.app_name}/{app_variant_db.base_name}"
-        container_name = f"{app_variant_db.app.app_name}-{app_variant_db.base_name}-{app_variant_db.organization.id}"
+        uri_path = f"{app_variant_db.project_id}/{app_variant_db.app.app_name}/{app_variant_db.base_name}"
+        container_name = f"{app_variant_db.app.app_name}-{app_variant_db.base_name}-{app_variant_db.project_id}"
     else:
-        uri_path = f"{app_variant_db.user.id}/{app_variant_db.app.app_name}/{app_variant_db.base_name}"
-        container_name = f"{app_variant_db.app.app_name}-{app_variant_db.base_name}-{app_variant_db.user.id}"
+        uri_path = f"{app_variant_db.project_id}/{app_variant_db.app.app_name}/{app_variant_db.base_name}"
+        container_name = f"{app_variant_db.app.app_name}-{app_variant_db.base_name}-{app_variant_db.project_id}"
+
     logger.debug("Starting service with the following parameters:")
     logger.debug(f"image_name: {app_variant_db.image.tags}")
     logger.debug(f"uri_path: {uri_path}")
@@ -55,14 +59,12 @@ async def start_service(
     )
 
     deployment = await db_manager.create_deployment(
-        app=app_variant_db.app,
-        user=app_variant_db.user,
+        app_id=str(app_variant_db.app.id),
+        project_id=project_id,
         container_name=container_name,
         container_id=container_id,
         uri=uri,
         status="running",
-        organization=app_variant_db.organization if isCloudEE() else None,
-        workspace=app_variant_db.workspace if isCloudEE() else None,
     )
     return deployment
 
@@ -133,10 +135,15 @@ async def validate_image(image: Image) -> bool:
         msg = "Image tags cannot be empty"
         logger.error(msg)
         raise ValueError(msg)
-    if not image.tags.startswith(settings.registry):
+
+    if isCloudEE():
+        image = Image(**image.model_dump())
+
+    if not image.tags.startswith(agenta_registry_repo):
         raise ValueError(
-            "Image should have a tag starting with the registry name (agenta-server)"
+            f"Image should have a tag starting with the registry name ({agenta_registry_repo})\n Image Tags: {image.tags}"
         )
+
     if image not in docker_utils.list_images():
         raise DockerException(
             f"Image {image.docker_id} with tags {image.tags} not found"
@@ -144,5 +151,15 @@ async def validate_image(image: Image) -> bool:
     return True
 
 
-def get_deployment_uri(deployment: DeploymentDB) -> str:
-    return deployment.uri.replace("http://localhost", "http://host.docker.internal")
+def get_deployment_uri(uri: str) -> str:
+    """
+    Replaces localhost with the appropriate hostname in the given URI.
+
+    Args:
+        uri (str): The URI to be processed.
+
+    Returns:
+        str: The processed URI.
+    """
+
+    return uri.replace("http://localhost", "http://host.docker.internal")

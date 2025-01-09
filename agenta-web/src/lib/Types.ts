@@ -1,13 +1,15 @@
 import {StaticImageData} from "next/image"
 import {EvaluationFlow, EvaluationType} from "./enums"
 import {GlobalToken} from "antd"
+import {AgentaNodeDTO} from "@/services/observability/types"
 
-export type JSSTheme = GlobalToken & {isDark: boolean}
+export type JSSTheme = GlobalToken & {isDark: boolean; fontWeightMedium: number}
 
 export interface testset {
     _id: string
     name: string
     created_at: string
+    updated_at: string
 }
 
 export interface TestSet {
@@ -18,9 +20,13 @@ export interface TestSet {
     csvdata: KeyValuePair[]
 }
 
+export type TestsetCreationMode = "create" | "clone" | "rename"
+
 export interface ListAppsItem {
     app_id: string
     app_name: string
+    app_type?: string
+    updated_at: string
 }
 
 export interface AppVariant {
@@ -39,6 +45,10 @@ export interface Variant {
     baseId: string
     baseName: string
     configName: string
+    revision: number
+    updatedAt: string
+    createdAt: string
+    modifiedById: string
 }
 
 // Define the interface for the tabs item in playground page
@@ -167,57 +177,17 @@ export interface Parameter {
     enum?: Array<string>
     minimum?: number
     maximum?: number
-}
-
-export interface Parameters {
-    frequence_penalty: number
-    inputs: [{}]
-    max_tokens: number
-    model: string
-    presence_penalty: number
-    prompt_system: string
-    prompt_user: string
-    temperature: number
-    top_p: number
-}
-
-export interface DeploymentRevisionConfig {
-    config_name: string
-    current_version: number
-    parameters: Parameters
+    choices?: {[key: string]: Array<string>}
 }
 
 export interface IPromptRevisions {
     config: {
         config_name: string
-        parameters: Parameters
+        parameters: Record<string, any>
     }
     created_at: string
     modified_by: string
     revision: number
-}
-
-export interface IEnvironmentRevision {
-    revision: number
-    modified_by: string
-    created_at: string
-}
-
-export interface IPromptVersioning {
-    app_id: string
-    app_name: string
-    base_id: string
-    base_name: string
-    config_name: string
-    organization_id: string
-    parameters: Parameters
-    previous_variant_name: string | null
-    revision: number
-    revisions: [IPromptRevisions]
-    uri: string
-    user_id: string
-    variant_id: string
-    variant_name: string
 }
 
 export interface EvaluationResponseType {
@@ -302,6 +272,9 @@ export interface LlmProvidersKeys {
     AZURE_API_KEY: string
     AZURE_API_BASE: string
     TOGETHERAI_API_KEY: string
+    MISTRAL_API_KEY: string
+    GROQ_API_KEY: string
+    GEMINI_API_KEY: string
 }
 
 export interface AppTemplate {
@@ -322,17 +295,6 @@ export interface Environment {
     deployed_variant_name: string | null
     deployed_app_variant_revision_id: string | null
     revision: string | null
-}
-
-export interface DeploymentRevisions extends Environment {
-    revisions: {
-        created_at: string
-        deployed_app_variant_revision: string
-        deployment: string
-        id: string
-        modified_by: string
-        revision: number
-    }[]
 }
 
 export interface CustomEvaluation {
@@ -375,6 +337,11 @@ type ValueTypeOptions =
     | "regex"
     | "object"
     | "error"
+    | "cost"
+    | "latency"
+    | "hidden"
+    | "messages"
+    | "multiple_choice"
 
 //evaluation revamp types
 export interface EvaluationSettingsTemplate {
@@ -382,6 +349,11 @@ export interface EvaluationSettingsTemplate {
     label: string
     default?: ValueType
     description: string
+    min?: number
+    max?: number
+    required?: boolean
+    advanced?: boolean
+    options?: string[]
 }
 
 export interface Evaluator {
@@ -391,6 +363,10 @@ export interface Evaluator {
     icon_url?: string | StaticImageData
     color?: string
     direct_use?: boolean
+    description: string
+    oss?: boolean
+    requires_llm_api_keys?: boolean
+    tags: string[]
 }
 
 export interface EvaluatorConfig {
@@ -399,6 +375,9 @@ export interface EvaluatorConfig {
     name: string
     settings_values: Record<string, any>
     created_at: string
+    color?: string
+    updated_at: string
+    tags?: string[]
 }
 
 export type EvaluationError = {
@@ -418,11 +397,17 @@ export enum EvaluationStatus {
     FINISHED = "EVALUATION_FINISHED",
     FINISHED_WITH_ERRORS = "EVALUATION_FINISHED_WITH_ERRORS",
     ERROR = "EVALUATION_FAILED",
+    AGGREGATION_FAILED = "EVALUATION_AGGREGATION_FAILED",
 }
 
 export enum EvaluationStatusType {
     STATUS = "status",
     ERROR = "error",
+}
+
+export interface CorrectAnswer {
+    key: string
+    value: string
 }
 
 export interface _Evaluation {
@@ -450,6 +435,9 @@ export interface _Evaluation {
     updated_at?: string
     duration?: number
     revisions: string[]
+    average_latency?: TypedValue & {error: null | EvaluationError}
+    average_cost?: TypedValue & {error: null | EvaluationError}
+    total_cost?: TypedValue & {error: null | EvaluationError}
     variant_revision_ids: string[]
 }
 
@@ -459,8 +447,8 @@ export interface _EvaluationScenario {
     evaluation: _Evaluation
     evaluators_configs: EvaluatorConfig[]
     inputs: (TypedValue & {name: string})[]
-    outputs: {result: TypedValue}[]
-    correct_answer?: string
+    outputs: {result: TypedValue; cost?: number; latency?: number}[]
+    correct_answers?: CorrectAnswer[]
     is_pinned?: boolean
     note?: string
     results: {evaluator_config: string; result: TypedValue & {error: null | EvaluationError}}[]
@@ -491,11 +479,10 @@ export interface AnnotationScenario {
 
 export type ComparisonResultRow = {
     inputs: {name: string; value: string}[]
-    correctAnswer: string
     variants: {
         variantId: string
         variantName: string
-        output: {result: TypedValue}
+        output: {result: TypedValue; cost?: number; latency?: number}
         evaluationId: string
         evaluatorConfigs: {
             evaluatorConfig: EvaluatorConfig
@@ -503,4 +490,218 @@ export type ComparisonResultRow = {
         }[]
     }[]
     id: string
+} & {[key: string]: any}
+
+export type RequestMetadata = {
+    cost: number
+    latency: number
+    usage:
+        | {completion?: number; prompt?: number; total: number}
+        | {completion_tokens?: number; prompt_tokens?: number; total_tokens: number}
 }
+
+export type WithPagination<T> = {
+    data: T[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export type PaginationQuery = {
+    page: number
+    pageSize: number
+}
+
+export type StyleProps = {
+    themeMode: "dark" | "light"
+}
+
+export interface SingleModelEvaluationListTableDataType {
+    key: string
+    variants: Variant[]
+    testset: {
+        _id: string
+        name: string
+    }
+    evaluationType: string
+    status: EvaluationFlow
+    scoresData: {
+        nb_of_rows: number
+        wrong?: GenericObject[]
+        correct?: GenericObject[]
+        true?: GenericObject[]
+        false?: GenericObject[]
+        variant: string[]
+    }
+    avgScore: number
+    custom_code_eval_id: string
+    resultsData: {[key: string]: number}
+    createdAt: string
+    revisions: string[]
+    variant_revision_ids: string[]
+}
+
+export type FuncResponse = {
+    message: string
+    cost: number
+    latency: number
+    usage: {completion_tokens: number; prompt_tokens: number; total_tokens: number}
+}
+
+export interface TraceDetailsV2 {
+    trace_id: string
+    cost?: number
+    latency?: number
+    usage: {completion_tokens: number; prompt_tokens: number; total_tokens: number}
+    spans?: BaseResponseSpans[]
+}
+
+export interface TraceDetailsV3 {
+    version: string
+    nodes: AgentaNodeDTO[]
+    count?: number | null
+}
+
+export type BaseResponse = {
+    version?: string | null
+    data: string | Record<string, any>
+} & Partial<{tree: TraceDetailsV3} & {trace: TraceDetailsV2}>
+
+export type BaseResponseSpans = {
+    id: string
+    app_id?: string
+    variant_id?: string
+    variant_name?: string
+    inputs?: Record<string, any>
+    outputs?: Record<string, any> | string[]
+    internals?: Record<string, any> | null
+    config?: Record<string, any> | null
+    environment?: string
+    tags?: string[] | null
+    token_consumption?: number | null
+    name: string
+    parent_span_id?: string | null
+    attributes?: Record<string, any>
+    spankind: string
+    status: TraceSpanStatus
+    user?: string | null
+    start_time: string
+    end_time: string
+    tokens?: {
+        completion_tokens: number
+        prompt_tokens: number
+        total_tokens: number
+    } | null
+    cost?: number | null
+}
+
+export interface TraceSpan {
+    id: string
+    created_at: string
+    variant: {
+        variant_id: string | null
+        variant_name: string | null
+        revision: number | null
+    }
+    environment: string | null
+    status: TraceSpanStatus
+    error?: string
+    spankind: string
+    metadata?: TraceSpanMetadata
+    user_id?: string | null
+    children?: TraceSpan[] | null
+    parent_span_id?: string | null
+    name?: string
+    content: {
+        inputs: Record<string, any> | null
+        internals: Record<string, any> | null
+        outputs: string[] | Record<string, any> | null
+        role?: string | null
+    }
+}
+
+export enum TraceSpanStatus {
+    UNSET = "UNSET",
+    OK = "OK",
+    ERROR = "ERROR",
+}
+
+export type TraceSpanMetadata = {
+    cost?: number | null
+    latency?: number | null
+    usage?: {
+        completion_tokens: number
+        prompt_tokens: number
+        total_tokens: number
+    } | null
+}
+
+export interface TraceSpanDetails extends TraceSpan {
+    config?: GenericObject
+}
+
+export interface TraceSpanTreeNode {
+    title: React.ReactElement
+    key: string
+    children?: TraceSpanTreeNode[]
+}
+
+interface VariantVotesData {
+    number_of_votes: number
+    percentage: number
+}
+export interface HumanEvaluationListTableDataType {
+    key: string
+    variants: string[]
+    testset: {
+        _id: string
+        name: string
+    }
+    evaluationType: string
+    status: EvaluationFlow
+    votesData: {
+        nb_of_rows: number
+        variants: string[]
+        flag_votes: {
+            number_of_votes: number
+            percentage: number
+        }
+        positive_votes: {
+            number_of_votes: number
+            percentage: number
+        }
+        variants_votes_data: Record<string, VariantVotesData>
+    }
+    createdAt: string
+    revisions: string[]
+    variant_revision_ids: string[]
+    variantNames: string[]
+}
+
+export type Filter = {
+    key: string
+    operator: FilterConditions
+    value: string
+    isPermanent?: boolean
+}
+
+export type FilterConditions =
+    | "contains"
+    | "matches"
+    | "like"
+    | "startswith"
+    | "endswith"
+    | "exists"
+    | "not_exists"
+    | "eq"
+    | "neq"
+    | "gt"
+    | "lt"
+    | "gte"
+    | "lte"
+    | "between"
+    | "in"
+    | "is"
+    | "is_not"
+    | "btwn"
+    | ""

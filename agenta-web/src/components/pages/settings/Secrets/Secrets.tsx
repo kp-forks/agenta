@@ -1,44 +1,29 @@
-import {
-    getLlmProviderKey,
-    saveLlmProviderKey,
-    removeSingleLlmProviderKey,
-    getAllProviderLlmKeys,
-    LlmProvider,
-} from "@/lib/helpers/utils"
+import {useVaultSecret} from "@/hooks/useVaultSecret"
+import {type LlmProvider} from "@/lib/helpers/llmProviders"
 import {Button, Input, Space, Typography, message} from "antd"
-import {useState} from "react"
-import {createUseStyles} from "react-jss"
+import {useEffect, useState} from "react"
 
 const {Title, Text} = Typography
 
-const useStyles = createUseStyles({
-    title: {
-        marginTop: 0,
-    },
-    container: {
-        marginLeft: 0,
-    },
-    apiContainer: {
-        margin: "0px 0",
-    },
-    input: {
-        display: "flex",
-        alignItems: "center",
-        width: 420,
-        marginBottom: 8,
-        marginLeft: 8,
-    },
-})
-
 export default function Secrets() {
-    const classes = useStyles()
-    const [llmProviderKeys, setLlmProviderKeys] = useState(getAllProviderLlmKeys())
+    const {secrets, handleModifyVaultSecret, handleDeleteVaultSecret} = useVaultSecret()
+    const [llmProviderKeys, setLlmProviderKeys] = useState<LlmProvider[]>([])
+    const [loadingSecrets, setLoadingSecrets] = useState<Record<string, boolean>>({})
     const [messageAPI, contextHolder] = message.useMessage()
+
+    useEffect(() => {
+        setLlmProviderKeys(secrets)
+    }, [secrets])
+
+    const setSecretLoading = (id: string | undefined, isLoading: boolean) => {
+        if (!id) return
+        setLoadingSecrets((prev) => ({...prev, [id]: isLoading}))
+    }
 
     return (
         <div data-cy="secrets">
             {contextHolder}
-            <Title level={3} className={classes.title}>
+            <Title level={3} className={"mt-0"}>
                 LLM Keys
             </Title>
 
@@ -47,13 +32,13 @@ export default function Secrets() {
                 servers!
             </Text>
 
-            <div className={classes.container}>
+            <div>
                 <Title level={5}>Available Providers</Title>
 
-                <div className={classes.apiContainer}>
-                    {llmProviderKeys.map(({title, key}: LlmProvider, i: number) => (
-                        <div key={i}>
-                            <Space direction="horizontal" key={i}>
+                <div>
+                    {llmProviderKeys.map(
+                        ({name, title, key, id: secretId}: LlmProvider, i: number) => (
+                            <Space direction="horizontal" key={i} className="mb-2 ml-2">
                                 <Input.Password
                                     data-cy="openai-api-input"
                                     value={key}
@@ -64,34 +49,57 @@ export default function Secrets() {
                                     }}
                                     addonBefore={`${title}`}
                                     visibilityToggle={false}
-                                    className={classes.input}
+                                    className={"w-[420px]"}
                                 />
                                 <Button
                                     data-cy="openai-api-save"
-                                    disabled={key === getLlmProviderKey(key) || !key}
-                                    onClick={() => {
-                                        saveLlmProviderKey(i, key)
-                                        messageAPI.success("The secret is saved")
+                                    type="primary"
+                                    disabled={!key}
+                                    loading={loadingSecrets[secretId || ""] === true}
+                                    onClick={async () => {
+                                        try {
+                                            setSecretLoading(secretId, true)
+                                            await handleModifyVaultSecret({
+                                                name,
+                                                title,
+                                                key,
+                                                id: secretId,
+                                            })
+                                            messageAPI.success("The secret is saved")
+                                        } finally {
+                                            setSecretLoading(secretId, false)
+                                        }
                                     }}
                                 >
                                     Save
                                 </Button>
                                 <Button
-                                    onClick={() => {
-                                        removeSingleLlmProviderKey(i)
-
-                                        const newLlmProviderKeys = [...llmProviderKeys]
-                                        newLlmProviderKeys[i].key = ""
-                                        setLlmProviderKeys(newLlmProviderKeys)
-
-                                        messageAPI.warning("The secret is deleted")
+                                    disabled={!Boolean(key)}
+                                    loading={loadingSecrets[secretId || ""] === true}
+                                    onClick={async () => {
+                                        try {
+                                            setSecretLoading(secretId, true)
+                                            await handleDeleteVaultSecret({
+                                                name,
+                                                id: secretId,
+                                                title,
+                                                key,
+                                            })
+                                            const newLlmProviderKeys = [...llmProviderKeys]
+                                            newLlmProviderKeys[i].key = ""
+                                            newLlmProviderKeys[i].id = ""
+                                            setLlmProviderKeys(newLlmProviderKeys)
+                                            messageAPI.warning("The secret is deleted")
+                                        } finally {
+                                            setSecretLoading(secretId, false)
+                                        }
                                     }}
                                 >
                                     Delete
                                 </Button>
                             </Space>
-                        </div>
-                    ))}
+                        ),
+                    )}
                 </div>
             </div>
         </div>

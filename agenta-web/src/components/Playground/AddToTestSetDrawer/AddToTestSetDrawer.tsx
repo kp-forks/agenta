@@ -1,8 +1,13 @@
 import AlertPopup from "@/components/AlertPopup/AlertPopup"
 import {useAppTheme} from "../../Layout/ThemeContextProvider"
-import {ChatMessage, ChatRole, GenericObject, testset} from "@/lib/Types"
+import {ChatMessage, ChatRole, GenericObject, testset, StyleProps} from "@/lib/Types"
 import {removeKeys, renameVariables} from "@/lib/helpers/utils"
-import {createNewTestset, loadTestset, updateTestset, useLoadTestsetsList} from "@/lib/services/api"
+import {
+    createNewTestset,
+    fetchTestset,
+    updateTestset,
+    useLoadTestsetsList,
+} from "@/services/testsets/api"
 import {
     Button,
     Divider,
@@ -17,16 +22,12 @@ import {
     Tooltip,
     message,
 } from "antd"
-import {useRouter} from "next/router"
-import React, {useCallback, useLayoutEffect, useRef, useState} from "react"
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from "react"
 import {createUseStyles} from "react-jss"
-import {useUpdateEffect} from "usehooks-ts"
+import {useLocalStorage, useUpdateEffect} from "usehooks-ts"
 import ChatInputs from "@/components/ChatInputs/ChatInputs"
-import _ from "lodash"
-
-type StyleProps = {
-    themeMode: "dark" | "light"
-}
+import cloneDeep from "lodash/cloneDeep"
+import clone from "lodash/clone"
 
 const useStyles = createUseStyles({
     footer: {
@@ -56,16 +57,16 @@ function flatToTurn({
     chat?: ChatMessage[]
     correct_answer?: ChatMessage | string
 }) {
-    const flatChat = _.cloneDeep(chat || [])
+    const flatChat = cloneDeep(chat || [])
     if (correct_answer && typeof correct_answer !== "string")
-        flatChat.push(_.cloneDeep(correct_answer))
+        flatChat.push(cloneDeep(correct_answer))
 
     const turns: {chat: ChatMessage[]; correct_answer: ChatMessage}[] = []
     let currentTurn: ChatMessage[] = []
     flatChat.forEach((item) => {
         if (item.role !== ChatRole.User) {
             turns.push({
-                chat: _.clone(currentTurn || []),
+                chat: clone(currentTurn || []),
                 correct_answer: item,
             })
         }
@@ -75,7 +76,7 @@ function flatToTurn({
 }
 
 function turnToFlat(turns: {chat: ChatMessage[]; correct_answer: ChatMessage}[]) {
-    const flat = _.cloneDeep(turns.at(-1))
+    const flat = cloneDeep(turns.at(-1))
     return {
         chat: flat?.chat || [],
         correct_answer: flat?.correct_answer || "",
@@ -91,7 +92,6 @@ const AddToTestSetDrawer: React.FC<Props> = ({params, isChatVariant, ...props}) 
     const {appTheme} = useAppTheme()
     const classes = useStyles({themeMode: appTheme} as StyleProps)
     const [form] = Form.useForm()
-    const [selectedTestset, setSelectedTestset] = useState<string>()
     const [newTesetModalOpen, setNewTestsetModalOpen] = useState(false)
     const [loading, setLoading] = useState(false)
     const [turnModeChat, setTurnModeChat] = useState<
@@ -99,11 +99,21 @@ const AddToTestSetDrawer: React.FC<Props> = ({params, isChatVariant, ...props}) 
     >(null)
     const [shouldRender, setShouldRender] = useState(false)
     const dirty = useRef(false)
-    const router = useRouter()
-    const appId = router.query.app_id as string
-    const isNew = selectedTestset === "-1"
+    const {testsets, mutate, isTestsetsLoading, isTestsetsLoadingError} = useLoadTestsetsList()
+    const storedValue = localStorage.getItem(`selectedTestset`)?.replace(/"/g, "")
+    const [selectedTestset, setSelectedTestset] = useLocalStorage<string>(`selectedTestset`, "")
 
-    const {testsets, mutate, isTestsetsLoading, isTestsetsLoadingError} = useLoadTestsetsList(appId)
+    useEffect(() => {
+        if (storedValue && testsets.some((testset: testset) => testset._id === storedValue)) {
+            setSelectedTestset(storedValue)
+        } else if (testsets.length > 0) {
+            setSelectedTestset(testsets[0]._id)
+        } else {
+            setSelectedTestset("-1")
+        }
+    }, [testsets])
+
+    const isNew = selectedTestset === "-1"
     const chatParams = useRef<{chat: ChatMessage[]; correct_answer: ChatMessage | string}>({
         chat: [],
         correct_answer: "",
@@ -116,8 +126,8 @@ const AddToTestSetDrawer: React.FC<Props> = ({params, isChatVariant, ...props}) 
 
             //reset to defaults
             form.resetFields()
-            chatParams.chat = _.cloneDeep(params.chat || [])
-            chatParams.correct_answer = _.cloneDeep(params.correct_answer || "")
+            chatParams.chat = cloneDeep(params.chat || [])
+            chatParams.correct_answer = cloneDeep(params.correct_answer || "")
             setTurnModeChat(null)
             setShouldRender(true)
         } else {
@@ -162,7 +172,7 @@ const AddToTestSetDrawer: React.FC<Props> = ({params, isChatVariant, ...props}) 
             })
 
             const promise = isNew
-                ? createNewTestset(appId, name, newRows)
+                ? createNewTestset(name, newRows)
                 : updateTestset(selectedTestset!, name, [...csvdata, ...newRows])
             promise
                 .then(() => {
@@ -179,7 +189,7 @@ const AddToTestSetDrawer: React.FC<Props> = ({params, isChatVariant, ...props}) 
             if (isNew) {
                 setNewTestsetModalOpen(true)
             } else {
-                loadTestset(selectedTestset!).then((data) => {
+                fetchTestset(selectedTestset!).then((data) => {
                     const testsetCols = Object.keys(data.csvdata?.[0] || {})
                     const playgroundCols = Object.keys(values[0])
                     const missingColsTestset = testsetCols.filter(
@@ -190,7 +200,7 @@ const AddToTestSetDrawer: React.FC<Props> = ({params, isChatVariant, ...props}) 
                     )
 
                     // if cols mismatch (playground cols not a superset of testset cols)
-                    if (missingColsTestset.length) {
+                    if (missingColsTestset.length && missingColsPlayground.length) {
                         AlertPopup({
                             type: "error",
                             title: "Columns mismatch",

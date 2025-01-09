@@ -1,69 +1,80 @@
-import EvaluationResults from "@/components/pages/evaluations/evaluationResults/EvaluationResults"
-import Evaluators from "@/components/pages/evaluations/evaluators/Evaluators"
-import {useAppId} from "@/hooks/useAppId"
+import AbTestingEvaluation from "@/components/HumanEvaluations/AbTestingEvaluation"
+import AutoEvaluation from "@/components/pages/evaluations/autoEvaluation/AutoEvaluation"
+import SingleModelEvaluation from "@/components/HumanEvaluations/SingleModelEvaluation"
 import {useQueryParam} from "@/hooks/useQuery"
-import {JSSTheme} from "@/lib/Types"
-import {evaluatorConfigsAtom, evaluatorsAtom} from "@/lib/atoms/evaluation"
-import {fetchAllEvaluatorConfigs, fetchAllEvaluators} from "@/services/evaluations"
-import {SlidersOutlined, UnorderedListOutlined} from "@ant-design/icons"
-import {Tabs} from "antd"
-import {useAtom} from "jotai"
-import React, {useEffect} from "react"
+import {_Evaluation, JSSTheme} from "@/lib/Types"
+import {ChartDonut, ListChecks, TestTube} from "@phosphor-icons/react"
+import {Tabs, TabsProps, Typography} from "antd"
 import {createUseStyles} from "react-jss"
 
+import "@ag-grid-community/styles/ag-grid.css"
+import "@ag-grid-community/styles/ag-theme-alpine.css"
+
 const useStyles = createUseStyles((theme: JSSTheme) => ({
-    root: {
+    container: {
+        display: "flex",
+        flexDirection: "column",
+        gap: theme.marginLG,
+    },
+    title: {
+        fontSize: theme.fontSizeLG,
+        fontWeight: theme.fontWeightMedium,
+        lineHeight: theme.lineHeightHeading4,
+    },
+    evaluationTabContainer: {
         "& .ant-tabs-nav": {
-            position: "sticky",
-            top: 0,
-            zIndex: 1,
-            background: theme.colorBgContainer,
-            marginBottom: 0,
+            marginBottom: theme.marginLG,
+        },
+        "& .ant-tabs-tab-btn": {
+            display: "flex",
+            alignItems: "center",
+            "& .ant-tabs-tab-icon": {
+                display: "flex",
+            },
         },
     },
 }))
 
-interface Props {}
-
-const Evaluations: React.FC<Props> = () => {
-    const [tab, setTab] = useQueryParam("tab", "results")
-    const appId = useAppId()
+const EvaluationsPage = () => {
     const classes = useStyles()
-    const setEvaluators = useAtom(evaluatorsAtom)[1]
-    const setEvaluatorConfigs = useAtom(evaluatorConfigsAtom)[1]
+    const [selectedEvaluation, setSelectedEvaluation] = useQueryParam(
+        "selectedEvaluation",
+        "auto_evaluation",
+    )
 
-    useEffect(() => {
-        Promise.all([fetchAllEvaluators(), fetchAllEvaluatorConfigs(appId)]).then(
-            ([evaluators, configs]) => {
-                setEvaluators(evaluators)
-                setEvaluatorConfigs(configs)
-            },
-        )
-    }, [appId])
+    const items: TabsProps["items"] = [
+        {
+            key: "auto_evaluation",
+            label: "Automatic Evaluation",
+            icon: <ChartDonut size={16} />,
+            children: <AutoEvaluation />,
+        },
+        {
+            key: "human_annotation",
+            label: "Human annotation",
+            icon: <ListChecks size={16} />,
+            children: <SingleModelEvaluation viewType="evaluation" />,
+        },
+        {
+            key: "human_ab_testing",
+            label: "Human A/B Testing",
+            icon: <TestTube size={16} />,
+            children: <AbTestingEvaluation viewType="evaluation" />,
+        },
+    ]
 
     return (
-        <div className={classes.root}>
+        <div className={classes.container}>
+            <Typography.Text className={classes.title}>Evaluations</Typography.Text>
+
             <Tabs
-                destroyInactiveTabPane
-                activeKey={tab}
-                items={[
-                    {
-                        key: "results",
-                        label: "Results",
-                        icon: <UnorderedListOutlined />,
-                        children: <EvaluationResults />,
-                    },
-                    {
-                        key: "evaluators",
-                        label: "Evaluators",
-                        icon: <SlidersOutlined />,
-                        children: <Evaluators />,
-                    },
-                ]}
-                onChange={setTab}
+                className={classes.evaluationTabContainer}
+                items={items}
+                defaultActiveKey={selectedEvaluation}
+                onChange={setSelectedEvaluation}
             />
         </div>
     )
 }
 
-export default Evaluations
+export default EvaluationsPage

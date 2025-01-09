@@ -1,4 +1,4 @@
-import {useState, useEffect, useCallback, useMemo} from "react"
+import {useState, useEffect, useCallback} from "react"
 import type {ColumnType} from "antd/es/table"
 import {CaretRightOutlined} from "@ant-design/icons"
 import {
@@ -15,7 +15,8 @@ import {
     Typography,
     message,
 } from "antd"
-import {updateEvaluationScenario, callVariant, updateEvaluation} from "@/lib/services/api"
+import {callVariant} from "@/services/api"
+import {updateEvaluationScenario, updateEvaluation} from "@/services/human-evaluations/api"
 import {useVariants} from "@/lib/hooks/useVariant"
 import {useRouter} from "next/router"
 import {EvaluationFlow} from "@/lib/enums"
@@ -24,12 +25,27 @@ import {exportSingleModelEvaluationData} from "@/lib/helpers/evaluate"
 import SecondaryButton from "../SecondaryButton/SecondaryButton"
 import {useQueryParam} from "@/hooks/useQuery"
 import EvaluationCardView from "../Evaluations/EvaluationCardView"
-import {Evaluation, EvaluationScenario, KeyValuePair, Variant} from "@/lib/Types"
-import {EvaluationTypeLabels, batchExecute, camelToSnake} from "@/lib/helpers/utils"
+import {
+    Evaluation,
+    EvaluationScenario,
+    KeyValuePair,
+    Variant,
+    FuncResponse,
+    BaseResponse,
+} from "@/lib/Types"
+import {
+    EvaluationTypeLabels,
+    batchExecute,
+    camelToSnake,
+    getStringOrJson,
+} from "@/lib/helpers/utils"
 import {testsetRowToChatMessages} from "@/lib/helpers/testset"
-import {debounce} from "lodash"
+import debounce from "lodash/debounce"
 import EvaluationVotePanel from "../Evaluations/EvaluationCardView/EvaluationVotePanel"
 import ParamsForm from "../Playground/ParamsForm/ParamsForm"
+import SaveTestsetModal from "../SaveTestsetModal/SaveTestsetModal"
+import {variantNameWithRev} from "@/lib/helpers/variantHelper"
+import {isBaseResponse, isFuncResponse} from "@/lib/helpers/playgroundResp"
 
 const {Title} = Typography
 
@@ -184,12 +200,13 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
     const [evaluationStatus, setEvaluationStatus] = useState<EvaluationFlow>(evaluation.status)
     const [viewMode, setViewMode] = useQueryParam("viewMode", "card")
     const [accuracy, setAccuracy] = useState<number>(0)
+    const [isTestsetModalOpen, setIsTestsetModalOpen] = useState(false)
 
     const depouncedUpdateEvaluationScenario = useCallback(
         debounce((data: Partial<EvaluationScenario>, scenarioId) => {
             updateEvaluationScenarioData(scenarioId, data)
         }, 800),
-        [evaluationScenarios],
+        [rows],
     )
 
     useEffect(() => {
@@ -274,7 +291,7 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
             .then(() => {
                 Object.keys(data).forEach((key) => {
                     setRowValue(
-                        evaluationScenarios.findIndex((item) => item.id === id),
+                        rows.findIndex((item) => item.id === id),
                         key,
                         data[key as keyof EvaluationScenario],
                     )
@@ -323,13 +340,27 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
                         variantData[idx].isChatVariant
                             ? testsetRowToChatMessages(evaluation.testset.csvdata[rowIndex], false)
                             : [],
+                        undefined,
+                        true,
                     )
-                    if (typeof result !== "string") {
-                        result = result.message
+
+                    let res: BaseResponse | undefined
+
+                    if (typeof result === "string") {
+                        res = {version: "2.0", data: result} as BaseResponse
+                    } else if (isFuncResponse(result)) {
+                        res = {version: "2.0", data: result.message} as BaseResponse
+                    } else if (isBaseResponse(result)) {
+                        res = result as BaseResponse
+                    } else {
+                        res = {version: "2.0", data: ""} as BaseResponse
+                        console.error("Unknown response type:", result)
                     }
 
-                    setRowValue(rowIndex, variant.variantId, result)
-                    ;(outputs as KeyValuePair)[variant.variantId] = result
+                    let _result = getStringOrJson(res.data)
+
+                    setRowValue(rowIndex, variant.variantId, _result)
+                    ;(outputs as KeyValuePair)[variant.variantId] = _result
                     setRowValue(rowIndex, "evaluationFlow", EvaluationFlow.COMPARISON_RUN_STARTED)
                     if (idx === variants.length - 1) {
                         if (count === 1 || count === rowIndex) {
@@ -337,7 +368,7 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
                         }
                     }
                 } catch (err) {
-                    console.log("Error running evaluation:", err)
+                    console.error("Error running evaluation:", err)
                     setRowValue(rowIndex, variant.variantId, "")
                 }
             }),
@@ -375,7 +406,12 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
                     <div>
                         <span>App Variant: </span>
                         <span className={classes.appVariant}>
-                            {variants ? `${variant.variantName} #${evaluation.revisions[0]}` : ""}
+                            {variants
+                                ? variantNameWithRev({
+                                      variant_name: variant.variantName,
+                                      revision: evaluation.revisions[0],
+                                  })
+                                : ""}
                         </span>
                     </div>
                 ),
@@ -408,6 +444,7 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
                     </div>
                 </div>
             ),
+            width: 300,
             dataIndex: "inputs",
             render: (_: any, record: SingleModelEvaluationRow, rowIndex: number) => {
                 return (
@@ -441,7 +478,7 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
                     <>
                         <Input.TextArea
                             defaultValue={correctAnswer}
-                            autoSize={{minRows: 3, maxRows: 5}}
+                            autoSize={{minRows: 3, maxRows: 10}}
                             onChange={(e) =>
                                 depouncedUpdateEvaluationScenario(
                                     {
@@ -496,7 +533,7 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
                     <>
                         <Input.TextArea
                             defaultValue={record?.note || ""}
-                            autoSize={{minRows: 3, maxRows: 5}}
+                            autoSize={{minRows: 3, maxRows: 10}}
                             onChange={(e) =>
                                 depouncedUpdateEvaluationScenario({note: e.target.value}, record.id)
                             }
@@ -535,6 +572,15 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
                             >
                                 Export Results
                             </SecondaryButton>
+                            <Button
+                                type="default"
+                                size="large"
+                                onClick={() => setIsTestsetModalOpen(true)}
+                                disabled={false}
+                                data-cy="single-model-save-testset-button"
+                            >
+                                Save Testset
+                            </Button>
                         </Space>
                     </Col>
 
@@ -564,6 +610,17 @@ const SingleModelEvaluationTable: React.FC<EvaluationTableProps> = ({
                     optionType="button"
                 />
             </div>
+
+            <SaveTestsetModal
+                open={isTestsetModalOpen}
+                onCancel={() => setIsTestsetModalOpen(false)}
+                onSuccess={(testsetName: string) => {
+                    message.success(`Row added to the "${testsetName}" test set!`)
+                    setIsTestsetModalOpen(false)
+                }}
+                rows={rows}
+                evaluation={evaluation}
+            />
 
             {viewMode === "tabular" ? (
                 <Table

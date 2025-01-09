@@ -15,6 +15,9 @@ import toml
 from agenta.client.backend.client import AgentaApi
 
 BACKEND_URL_SUFFIX = os.environ.get("BACKEND_URL_SUFFIX", "api")
+POSTHOG_KEY = os.environ.get(
+    "POSTHOG_KEY", "phc_hmVSxIjTW1REBHXgj2aw4HW9X6CXb6FzerBgP9XenC7"
+)
 
 
 def get_global_config(var_name: str) -> Optional[Any]:
@@ -97,7 +100,7 @@ def get_api_key(backend_host: str) -> str:
     ).ask()
 
     if api_key:
-        set_global_config("api_key", api_key)
+        set_global_config("api_key", api_key.strip())
 
         return api_key
     elif api_key is None:  # User pressed Ctrl+C
@@ -111,7 +114,8 @@ def init_telemetry_config() -> None:
     ):
         set_global_config("telemetry_tracking_enabled", True)
         set_global_config(
-            "telemetry_api_key", "phc_hmVSxIjTW1REBHXgj2aw4HW9X6CXb6FzerBgP9XenC7"
+            "telemetry_api_key",
+            POSTHOG_KEY,
         )
 
 
@@ -137,7 +141,7 @@ def update_variants_from_backend(
     )
 
     try:
-        variants: List[AppVariant] = client.list_app_variants(app_id=app_id)
+        variants: List[AppVariant] = client.apps.list_app_variants(app_id=app_id)
     except Exception as ex:
         raise ex
 

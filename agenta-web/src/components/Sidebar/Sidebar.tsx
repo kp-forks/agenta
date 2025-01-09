@@ -1,62 +1,48 @@
-import React, {useEffect, useState} from "react"
+import React, {useEffect, useMemo, useState} from "react"
 import {useRouter} from "next/router"
-import {
-    RocketOutlined,
-    AppstoreOutlined,
-    DatabaseOutlined,
-    CloudUploadOutlined,
-    LineChartOutlined,
-    ReadOutlined,
-    PhoneOutlined,
-    SettingOutlined,
-    LogoutOutlined,
-    FormOutlined,
-} from "@ant-design/icons"
-import {Layout, Menu, Space, Tooltip, theme} from "antd"
-
+import {Button, Divider, Dropdown, Layout, Menu, Space, Tag, Tooltip, Typography} from "antd"
 import Logo from "../Logo/Logo"
 import Link from "next/link"
 import {useAppTheme} from "../Layout/ThemeContextProvider"
 import {ErrorBoundary} from "react-error-boundary"
 import {createUseStyles} from "react-jss"
-import AlertPopup from "../AlertPopup/AlertPopup"
-import {useProfileData} from "@/contexts/profile.context"
-import {isDemo} from "@/lib/helpers/utils"
-import {useSession} from "@/hooks/useSession"
-import {dynamicComponent} from "@/lib/helpers/dynamic"
 import {useLocalStorage} from "usehooks-ts"
-
-type StyleProps = {
-    themeMode: "system" | "dark" | "light"
-    colorBgContainer: string
-}
+import {SidebarConfig, useSidebarConfig} from "./config"
+import {JSSTheme} from "@/lib/Types"
+import {isDemo} from "@/lib/helpers/utils"
+import {useProfileData} from "@/contexts/profile.context"
+import {useSession} from "@/hooks/useSession"
+import {CaretDown, Gear, SignOut} from "@phosphor-icons/react"
+import AlertPopup from "../AlertPopup/AlertPopup"
+import {dynamicContext} from "@/lib/helpers/dynamic"
+import Avatar from "@/components/Avatar/Avatar"
+import {useProjectData} from "@/contexts/project.context"
 
 const {Sider} = Layout
+const {Text} = Typography
 
-const useStyles = createUseStyles({
-    sidebar: ({colorBgContainer}: StyleProps) => ({
-        background: `${colorBgContainer} !important`,
+const useStyles = createUseStyles((theme: JSSTheme) => ({
+    sidebar: {
+        background: `${theme.colorBgContainer} !important`,
         height: "100vh",
         position: "sticky !important",
         bottom: "0px",
         top: "0px",
 
         "&>div:nth-of-type(2)": {
-            background: `${colorBgContainer} !important`,
+            background: `${theme.colorBgContainer} !important`,
         },
-    }),
-    siderWrapper: ({themeMode}: StyleProps) => ({
-        border: `0.01px solid ${themeMode === "dark" ? "#222" : "#ddd"}`,
-    }),
+    },
+    siderWrapper: {
+        border: `0.01px solid ${theme.isDark ? "#222" : "#ddd"}`,
+    },
     sliderContainer: {
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        padding: "0 10px",
+        padding: "0 10px 10px",
         "& > div:nth-of-type(1)": {
-            marginTop: "20px",
-            marginBottom: "20px",
-            marginRight: "20px",
+            margin: `${theme.padding}px 0`,
             display: "flex",
             justifyContent: "center",
         },
@@ -65,274 +51,399 @@ const useStyles = createUseStyles({
             justifyContent: "space-between",
             flexDirection: "column",
             flex: 1,
+            overflowY: "auto",
+        },
+        "& .ant-menu-submenu-title": {
+            display: "flex",
+            alignItems: "center",
+            paddingInlineEnd: "20px",
+            "& .ant-menu-submenu-arrow": {
+                insetInlineEnd: "8px",
+            },
+        },
+        "& .ant-menu-item,.ant-menu-submenu-title": {
+            padding: "0 16px !important",
         },
     },
     menuContainer: {
         borderRight: "0 !important",
+        overflowY: "auto",
+        position: "relative",
+        "& .ant-menu-item-selected": {
+            fontWeight: theme.fontWeightMedium,
+        },
     },
     menuContainer2: {
         borderRight: "0 !important",
     },
     menuLinks: {
+        display: "inline-block",
         width: "100%",
     },
-})
+    menuItem: {
+        textOverflow: "initial !important",
+        display: "flex !important",
+        alignItems: "center",
+    },
+    avatarMainContainer: {
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "4px 16px 4px 8px",
+        borderRadius: theme.borderRadiusLG,
+    },
+    avatarContainer: {
+        display: "flex",
+        alignItems: "center",
+        gap: theme.paddingSM,
+        "& > div": {
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            "& .ant-typography:nth-of-type(2)": {
+                color: theme.colorTextDescription,
+            },
+        },
+    },
+    menuHeader: {
+        padding: `${theme.paddingXS}px ${theme.padding}px`,
+        color: theme.colorTextDescription,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+    },
+}))
+
+const SidebarMenu: React.FC<{
+    items: SidebarConfig[]
+    collapsed: boolean
+    menuProps?: React.ComponentProps<typeof Menu>
+    mode?: "horizontal" | "vertical" | "inline"
+}> = ({items, menuProps, collapsed, mode = "inline"}) => {
+    const classes = useStyles()
+
+    return (
+        <Menu mode={mode} {...menuProps}>
+            {items.map((item) => {
+                if (item.submenu) {
+                    if (item.isCloudFeature) {
+                        return (
+                            <Tooltip
+                                title={item.cloudFeatureTooltip}
+                                key={item.key}
+                                placement="right"
+                            >
+                                <Menu.SubMenu
+                                    icon={item.icon}
+                                    title={
+                                        <>
+                                            {item.title}{" "}
+                                            {item.tag && <Tag color="lime">{item.tag}</Tag>}
+                                        </>
+                                    }
+                                    onTitleClick={item.onClick}
+                                    disabled={item.isCloudFeature}
+                                    data-cy={item.key}
+                                >
+                                    {item.submenu.map((subitem) => {
+                                        const node = (
+                                            <Link
+                                                className={classes.menuLinks}
+                                                href={subitem.link || "#"}
+                                                target={
+                                                    subitem.link?.startsWith("http")
+                                                        ? "_blank"
+                                                        : undefined
+                                                }
+                                            >
+                                                {subitem.title}
+                                            </Link>
+                                        )
+
+                                        return (
+                                            <Menu.Item
+                                                icon={subitem.icon}
+                                                key={subitem.key}
+                                                onClick={subitem.onClick}
+                                                data-cy={subitem.key}
+                                            >
+                                                {collapsed ? (
+                                                    node
+                                                ) : (
+                                                    <Tooltip
+                                                        title={subitem.tooltip}
+                                                        placement="right"
+                                                    >
+                                                        {node}
+                                                    </Tooltip>
+                                                )}
+                                            </Menu.Item>
+                                        )
+                                    })}
+                                </Menu.SubMenu>
+                            </Tooltip>
+                        )
+                    } else {
+                        return (
+                            <Menu.SubMenu
+                                key={item.key}
+                                icon={item.icon}
+                                title={
+                                    <>
+                                        {item.title}{" "}
+                                        {item.tag && <Tag color="lime">{item.tag}</Tag>}
+                                    </>
+                                }
+                                onTitleClick={item.onClick}
+                                data-cy={item.key}
+                            >
+                                {item.submenu.map((subitem) => {
+                                    const node = (
+                                        <Link
+                                            className={classes.menuLinks}
+                                            href={subitem.link || "#"}
+                                            target={
+                                                subitem.link?.startsWith("http")
+                                                    ? "_blank"
+                                                    : undefined
+                                            }
+                                        >
+                                            {subitem.title}
+                                        </Link>
+                                    )
+
+                                    return (
+                                        <Menu.Item
+                                            icon={subitem.icon}
+                                            key={subitem.key}
+                                            onClick={subitem.onClick}
+                                            data-cy={subitem.key}
+                                            className={classes.menuItem}
+                                        >
+                                            {collapsed ? (
+                                                node
+                                            ) : (
+                                                <Tooltip title={subitem.tooltip} placement="right">
+                                                    {node}
+                                                </Tooltip>
+                                            )}
+                                        </Menu.Item>
+                                    )
+                                })}
+                            </Menu.SubMenu>
+                        )
+                    }
+                } else if (item.header) {
+                    return (
+                        <div key={item.key} className={classes.menuHeader}>
+                            {item.title}
+                        </div>
+                    )
+                } else {
+                    const node = (
+                        <Link
+                            className={classes.menuLinks}
+                            href={item.link || "#"}
+                            target={item.link?.startsWith("http") ? "_blank" : undefined}
+                        >
+                            {item.title} {item.tag && <Tag color="lime">{item.tag}</Tag>}
+                        </Link>
+                    )
+                    return (
+                        <>
+                            <Menu.Item
+                                data-cy={item.key}
+                                icon={item.icon}
+                                key={item.key}
+                                onClick={item.onClick}
+                                className={classes.menuItem}
+                            >
+                                {collapsed ? (
+                                    node
+                                ) : (
+                                    <Tooltip title={item.tooltip} placement="right">
+                                        {node}
+                                    </Tooltip>
+                                )}
+                            </Menu.Item>
+                            {item.divider && <Divider className="my-4" />}
+                        </>
+                    )
+                }
+            })}
+        </Menu>
+    )
+}
 
 const Sidebar: React.FC = () => {
     const {appTheme} = useAppTheme()
-    const {
-        token: {colorBgContainer},
-    } = theme.useToken()
     const router = useRouter()
-    const appId = router.query.app_id as string
-    const classes = useStyles({
-        themeMode: appTheme,
-        colorBgContainer,
-    } as StyleProps)
-    const {doesSessionExist, logout} = useSession()
-
-    const pathSegments = router.asPath.split("/")
-    const page_name = pathSegments[3]
-
-    let initialSelectedKeys: string[] = []
-    if (typeof page_name === "string") {
-        initialSelectedKeys = [page_name]
-    } else if (Array.isArray(page_name)) {
-        initialSelectedKeys = page_name
-    } else if (typeof page_name === "undefined") {
-        initialSelectedKeys = ["apps"]
-    }
-    const [selectedKeys, setSelectedKeys] = useState(initialSelectedKeys)
-    const {user} = useProfileData()
+    const classes = useStyles()
+    const [openKey, setOpenKey] = useState<string>()
     const [collapsed, setCollapsed] = useLocalStorage("sidebarCollapsed", false)
+    const menu = useSidebarConfig()
+    const {user} = useProfileData()
+    const {logout} = useSession()
+    const {project} = useProjectData()
+    const [useOrgData, setUseOrgData] = useState<Function>(() => () => "")
+    const {selectedOrg, orgs, changeSelectedOrg} = useOrgData()
 
     useEffect(() => {
-        setSelectedKeys(initialSelectedKeys)
-    }, [page_name])
-
-    const getNavigationPath = (path: string) => {
-        if (path === "apps") {
-            return "/apps"
-        } else {
-            return `/apps/${appId}/${path}`
-        }
-    }
-
-    const handleLogout = () => {
-        AlertPopup({
-            title: "Logout",
-            message: "Are you sure you want to logout?",
-            onOk: logout,
+        dynamicContext("org.context", {useOrgData}).then((context) => {
+            setUseOrgData(() => context.useOrgData)
         })
-    }
+    }, [])
 
-    const OrgsListSubMenu = dynamicComponent("OrgsListSubMenu/OrgsListSubMenu")
+    const {topItems, bottomItems} = useMemo(() => {
+        const topItems: SidebarConfig[] = []
+        const bottomItems: SidebarConfig[] = []
+
+        menu.forEach((item) => {
+            if (item.isHidden) return
+            if (item.isBottom) {
+                bottomItems.push(item)
+            } else {
+                topItems.push(item)
+            }
+        })
+
+        return {
+            topItems,
+            bottomItems,
+        }
+    }, [menu])
+
+    const [selectedKeys, openKeys] = useMemo(() => {
+        let matched: SidebarConfig
+        let openKey = ""
+
+        const executor = (items: SidebarConfig[], subKey?: string) => {
+            items.forEach((item) => {
+                if (item.submenu?.length) {
+                    executor(item.submenu, item.key)
+                } else if (
+                    item.link &&
+                    router.asPath.startsWith(item.link) &&
+                    item.link.length > (matched?.link?.length || 0)
+                ) {
+                    matched = item
+                    if (subKey) openKey = subKey
+                }
+            })
+        }
+        executor([...topItems, ...bottomItems])
+
+        //@ts-ignore
+        return [[matched?.key], openKey ? [openKey] : []]
+    }, [router.asPath, topItems, bottomItems])
+
+    useEffect(() => {
+        setOpenKey(openKeys[0])
+    }, [openKeys[0]])
 
     return (
         <div className={classes.siderWrapper}>
-            <Sider
-                theme={appTheme}
-                className={classes.sidebar}
-                width={225}
-                collapsible
-                collapsed={collapsed}
-                onCollapse={(value) => setCollapsed(value)}
-            >
+            <Sider theme={appTheme} className={classes.sidebar} width={236}>
                 <div className={classes.sliderContainer}>
                     <div>
-                        <Link data-cy="app-management-link" href={getNavigationPath("apps")}>
-                            <Logo isOnlyIconLogo={collapsed} />
-                        </Link>
+                        {!isDemo() && (
+                            <Link data-cy="app-management-link" href="/apps">
+                                <Logo isOnlyIconLogo={collapsed} />
+                            </Link>
+                        )}
+                        {selectedOrg?.id && user?.id && isDemo() && (
+                            <Dropdown
+                                trigger={["hover"]}
+                                menu={{
+                                    items: [
+                                        ...orgs.map((org: any) => ({
+                                            key: org.id,
+                                            label: (
+                                                <Space>
+                                                    <Avatar size="small" name={org.name} />
+                                                    <Text>{org.name}</Text>
+                                                </Space>
+                                            ),
+                                        })),
+                                        {type: "divider"},
+                                        !project?.is_demo && {
+                                            key: "settings",
+                                            label: (
+                                                <Link
+                                                    href={"/settings"}
+                                                    className="flex items-center gap-2"
+                                                >
+                                                    <Gear size={16} />
+                                                    <Text>Settings</Text>
+                                                </Link>
+                                            ),
+                                        },
+                                        {
+                                            key: "logout",
+                                            label: (
+                                                <div className="flex items-center gap-2">
+                                                    <SignOut size={16} />
+                                                    <Text>Logout</Text>
+                                                </div>
+                                            ),
+                                            onClick: () => {
+                                                AlertPopup({
+                                                    title: "Logout",
+                                                    message: "Are you sure you want to logout?",
+                                                    onOk: logout,
+                                                })
+                                            },
+                                        },
+                                    ],
+                                    selectedKeys: [selectedOrg.id],
+                                    onClick: ({key}) => {
+                                        if (["settings", "logout"].includes(key)) return
+                                        changeSelectedOrg(key)
+                                    },
+                                }}
+                            >
+                                <Button className={classes.avatarMainContainer}>
+                                    <div className={classes.avatarContainer}>
+                                        <Avatar className="text-lg" name={selectedOrg.name} />
+
+                                        {!collapsed && (
+                                            <div>
+                                                <Text>{selectedOrg.name}</Text>
+                                                <Text>{selectedOrg.type}</Text>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <CaretDown size={14} />
+                                </Button>
+                            </Dropdown>
+                        )}
                     </div>
                     <ErrorBoundary fallback={<div />}>
                         <div>
-                            <Menu
+                            <SidebarMenu
+                                menuProps={{
+                                    className: classes.menuContainer,
+                                    selectedKeys,
+                                    openKeys: openKey ? [openKey] : [],
+                                    onOpenChange: (openKeys) => setOpenKey(openKeys.at(-1)),
+                                }}
+                                items={topItems}
+                                collapsed={collapsed}
+                            />
+                            <SidebarMenu
+                                menuProps={{
+                                    className: classes.menuContainer2,
+                                    selectedKeys,
+                                    openKeys: openKey ? [openKey] : [],
+                                    onOpenChange: (openKeys) => setOpenKey(openKeys.at(-1)),
+                                }}
+                                items={bottomItems}
+                                collapsed={collapsed}
                                 mode="vertical"
-                                selectedKeys={initialSelectedKeys}
-                                className={classes.menuContainer}
-                            >
-                                <Tooltip
-                                    key="apps"
-                                    placement="right"
-                                    title={
-                                        !collapsed
-                                            ? "Create new applications or switch between your existing projects."
-                                            : ""
-                                    }
-                                >
-                                    <Menu.Item icon={<AppstoreOutlined />}>
-                                        <Link
-                                            data-cy="app-management-link"
-                                            href={getNavigationPath("apps")}
-                                            className={classes.menuLinks}
-                                        >
-                                            {collapsed
-                                                ? "Create new applications or switch between your existing projects."
-                                                : "App Management"}
-                                        </Link>
-                                    </Menu.Item>
-                                </Tooltip>
-                                {page_name && (
-                                    <>
-                                        <Tooltip
-                                            placement="right"
-                                            key="playground"
-                                            title={
-                                                !collapsed
-                                                    ? "Experiment with real data and optimize your parameters including prompts, methods, and configuration settings."
-                                                    : ""
-                                            }
-                                        >
-                                            <Menu.Item icon={<RocketOutlined />}>
-                                                <Link
-                                                    data-cy="app-playground-link"
-                                                    href={getNavigationPath("playground")}
-                                                    className={classes.menuLinks}
-                                                >
-                                                    {collapsed
-                                                        ? "Experiment with real data and optimize your parameters including prompts, methods, and configuration settings."
-                                                        : "Playground"}
-                                                </Link>
-                                            </Menu.Item>
-                                        </Tooltip>
-
-                                        <Tooltip
-                                            placement="right"
-                                            title={
-                                                !collapsed
-                                                    ? "Create and manage testsets for evaluation purposes."
-                                                    : ""
-                                            }
-                                            key="testsets"
-                                        >
-                                            <Menu.Item icon={<DatabaseOutlined />}>
-                                                <Link
-                                                    data-cy="app-testsets-link"
-                                                    href={getNavigationPath("testsets")}
-                                                    className={classes.menuLinks}
-                                                >
-                                                    {collapsed
-                                                        ? "Create and manage testsets for evaluation purposes."
-                                                        : "Test Sets"}
-                                                </Link>
-                                            </Menu.Item>
-                                        </Tooltip>
-
-                                        <Tooltip
-                                            placement="right"
-                                            title={
-                                                !collapsed
-                                                    ? "Evaluate and Compare variants programmatically."
-                                                    : ""
-                                            }
-                                            key="evaluations"
-                                        >
-                                            <Menu.Item icon={<LineChartOutlined />}>
-                                                <Link
-                                                    data-cy="app-evaluations-link"
-                                                    href={getNavigationPath("evaluations")}
-                                                    className={classes.menuLinks}
-                                                >
-                                                    {collapsed
-                                                        ? "Evaluate and Compare variants programmatically."
-                                                        : "Evaluations"}
-                                                </Link>
-                                            </Menu.Item>
-                                        </Tooltip>
-
-                                        <Tooltip
-                                            placement="right"
-                                            title={
-                                                !collapsed
-                                                    ? "Use human feedback to score and compare variants."
-                                                    : ""
-                                            }
-                                            key="annotations"
-                                        >
-                                            <Menu.Item icon={<FormOutlined />}>
-                                                <Link
-                                                    data-cy="app-annotations-link"
-                                                    href={getNavigationPath("annotations")}
-                                                    className={classes.menuLinks}
-                                                >
-                                                    {collapsed
-                                                        ? "Use human feedback to score and compare variants."
-                                                        : "Annotations"}
-                                                </Link>
-                                            </Menu.Item>
-                                        </Tooltip>
-
-                                        <Tooltip
-                                            placement="right"
-                                            title={
-                                                !collapsed
-                                                    ? "Deploy your applications to different environments."
-                                                    : ""
-                                            }
-                                            key="endpoints"
-                                        >
-                                            <Menu.Item icon={<CloudUploadOutlined />}>
-                                                <Link
-                                                    data-cy="app-endpoints-link"
-                                                    href={getNavigationPath("endpoints")}
-                                                    className={classes.menuLinks}
-                                                >
-                                                    <Space>
-                                                        <span>
-                                                            {collapsed
-                                                                ? "Deploy your applications to different environments."
-                                                                : "Endpoints"}
-                                                        </span>
-                                                    </Space>
-                                                </Link>
-                                            </Menu.Item>
-                                        </Tooltip>
-                                    </>
-                                )}
-                            </Menu>
-
-                            <Menu
-                                mode="vertical"
-                                className={classes.menuContainer2}
-                                selectedKeys={selectedKeys}
-                            >
-                                {doesSessionExist && (
-                                    <Menu.Item key="settings" icon={<SettingOutlined />}>
-                                        <Link data-cy="settings-link" href="/settings">
-                                            Settings
-                                        </Link>
-                                    </Menu.Item>
-                                )}
-
-                                <Menu.Item key="docs" icon={<ReadOutlined />}>
-                                    <Link href="https://docs.agenta.ai" target="_blank">
-                                        Docs
-                                    </Link>
-                                </Menu.Item>
-
-                                {isDemo() && (
-                                    <>
-                                        <Menu.Item key="expert" icon={<PhoneOutlined />}>
-                                            <Link
-                                                href="https://cal.com/mahmoud-mabrouk-ogzgey/demo"
-                                                target="_blank"
-                                            >
-                                                Book Onboarding Call
-                                            </Link>
-                                        </Menu.Item>
-                                        <OrgsListSubMenu key="workspaces" />
-                                        {user?.username && (
-                                            <Menu.Item
-                                                key="logout"
-                                                icon={<LogoutOutlined />}
-                                                onClick={handleLogout}
-                                            >
-                                                Logout
-                                            </Menu.Item>
-                                        )}
-                                    </>
-                                )}
-                            </Menu>
+                            />
                         </div>
                     </ErrorBoundary>
                 </div>

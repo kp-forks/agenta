@@ -1,18 +1,29 @@
 import os
 import pytest
 import logging
-from datetime import datetime
-
-from agenta_backend.models.db_models import (
-    AppDB,
-    UserDB,
-    VariantBaseDB,
-    ImageDB,
-    ConfigDB,
-    AppVariantDB,
-)
+from datetime import datetime, timezone
 
 import httpx
+from sqlalchemy.future import select
+
+from agenta_backend.models.shared_models import ConfigDB
+from agenta_backend.models.db_models import (
+    ProjectDB,
+    AppDB,
+    UserDB,
+    DeploymentDB,
+    VariantBaseDB,
+    ImageDB,
+    AppVariantDB,
+)
+from agenta_backend.tests.unit.test_traces import (
+    simple_rag_trace,
+    simple_finance_assisstant_trace,
+)
+from agenta_backend.resources.evaluators.evaluators import get_all_evaluators
+
+
+from agenta_backend.dbs.postgres.shared.engine import engine
 
 
 # Initialize logger
@@ -32,127 +43,123 @@ elif ENVIRONMENT == "github":
 async def get_first_user_object():
     """Get the user object from the database or create a new one if not found."""
 
-    user = await UserDB.find_one(UserDB.uid == "0")
-    if user is None:
-        create_user = UserDB(uid="0")
-        await create_user.create()
-
-        return create_user
-    return user
+    async with engine.session() as session:
+        result = await session.execute(select(UserDB).filter_by(uid="0"))
+        user = result.scalars().first()
+        if user is None:
+            create_user = UserDB(uid="0")
+            session.add(create_user)
+            await session.commit()
+            await session.refresh(create_user)
+            return create_user
+        return user
 
 
 @pytest.fixture()
 async def get_second_user_object():
     """Create a second user object."""
 
-    user = await UserDB.find_one(UserDB.uid == "1")
-    if user is None:
-        create_user = UserDB(
-            uid="1", username="test_user1", email="test_user1@email.com"
+    async with engine.session() as session:
+        result = await session.execute(select(UserDB).filter_by(uid="1"))
+        user = result.scalars().first()
+        if user is None:
+            create_user = UserDB(
+                uid="1", username="test_user1", email="test_user1@email.com"
+            )
+            session.add(create_user)
+            await session.commit()
+            await session.refresh(create_user)
+            return create_user
+        return user
+
+
+@pytest.fixture()
+async def get_or_create_project_from_db():
+    async with engine.session() as session:
+        result = await session.execute(
+            select(ProjectDB).filter_by(project_name="default", is_default=True)
         )
-        await create_user.create()
-
-        return create_user
-    return user
+        project = result.scalars().first()
+        if project is None:
+            create_project = ProjectDB(project_name="default", is_default=True)
+            session.add(create_project)
+            await session.commit()
+            await session.refresh(create_project)
+            return create_project
+        return project
 
 
 @pytest.fixture()
-async def get_first_user_app(get_first_user_object):
+async def get_first_user_app(get_first_user_object, get_or_create_project_from_db):
     user = await get_first_user_object
+    project = await get_or_create_project_from_db
 
-    app = AppDB(app_name="myapp", user=user)
-    await app.create()
+    async with engine.session() as session:
+        app = AppDB(app_name="myapp", project_id=project.id)
+        session.add(app)
+        await session.commit()
+        await session.refresh(app)
 
-    db_image = ImageDB(
-        docker_id="sha256:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        tags="agentaai/templates_v2:local_test_prompt",
-        user=user,
-    )
-    await db_image.create()
+        db_image = ImageDB(
+            docker_id="sha256:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            tags="agentaai/templates_v2:local_test_prompt",
+            project_id=project.id,
+        )
+        session.add(db_image)
+        await session.commit()
+        await session.refresh(db_image)
 
-    db_config = ConfigDB(
-        config_name="default",
-        parameters={},
-    )
+        db_config = ConfigDB(
+            config_name="default",
+            parameters={},
+        )
 
-    db_base = VariantBaseDB(base_name="app", image=db_image, user=user, app=app)
-    await db_base.create()
+        db_deployment = DeploymentDB(
+            app_id=app.id,
+            project_id=project.id,
+            container_name="container_a_test",
+            container_id="w243e34red",
+            uri="http://localhost/app/w243e34red",
+            status="stale",
+        )
+        session.add(db_deployment)
 
-    appvariant = AppVariantDB(
-        app=app,
-        variant_name="app",
-        image=db_image,
-        user=user,
-        parameters={},
-        base_name="app",
-        config_name="default",
-        base=db_base,
-        revision=0,
-        modified_by=user,
-        config=db_config,
-    )
-    await appvariant.create()
-    return appvariant, user, app, db_image, db_config, db_base
+        db_base = VariantBaseDB(
+            base_name="app",
+            image_id=db_image.id,
+            project_id=project.id,
+            app_id=app.id,
+            deployment_id=db_deployment.id,
+        )
+        session.add(db_base)
+        await session.commit()
+        await session.refresh(db_base)
+
+        appvariant = AppVariantDB(
+            app_id=app.id,
+            variant_name="app",
+            image_id=db_image.id,
+            project_id=project.id,
+            config_parameters={},
+            base_name="app",
+            config_name="default",
+            base_id=db_base.id,
+            revision=0,
+            modified_by_id=user.id,
+        )
+        session.add(appvariant)
+        await session.commit()
+        await session.refresh(appvariant)
+
+        return appvariant, user, app, db_image, db_config, db_base
 
 
-@pytest.fixture()
-def spans_db_data():
-    return [
-        {
-            "parent_span_id": "string",
-            "meta": {},
-            "event_name": "call",
-            "event_type": "fixture_call",
-            "start_time": str(datetime.now()),
-            "duration": 8.30,
-            "status": "initiated",
-            "end_time": str(datetime.now()),
-            "inputs": ["string"],
-            "outputs": ["string"],
-            "prompt_template": "string",
-            "tokens_input": 80,
-            "tokens_output": 25,
-            "token_total": 105,
-            "cost": 0.23,
-            "tags": ["string"],
-        },
-        {
-            "parent_span_id": "string",
-            "meta": {},
-            "event_name": "call",
-            "event_type": "fixture_call",
-            "start_time": str(datetime.now()),
-            "duration": 13.30,
-            "status": "initiated",
-            "end_time": str(datetime.now()),
-            "inputs": ["string"],
-            "outputs": ["string"],
-            "prompt_template": "string",
-            "tokens_input": 58,
-            "tokens_output": 65,
-            "token_total": 123,
-            "cost": 0.19,
-            "tags": ["string"],
-        },
-        {
-            "parent_span_id": "string",
-            "meta": {},
-            "event_name": "call",
-            "event_type": "fixture_call",
-            "start_time": str(datetime.now()),
-            "duration": 18.30,
-            "status": "initiated",
-            "end_time": str(datetime.now()),
-            "inputs": ["string"],
-            "outputs": ["string"],
-            "prompt_template": "string",
-            "tokens_input": 100,
-            "tokens_output": 35,
-            "token_total": 135,
-            "cost": 0.54,
-            "tags": ["string"],
-        },
-    ]
+@pytest.fixture(scope="session")
+async def fetch_user():
+    async with engine.session() as session:
+        result = await session.execute(select(UserDB).filter_by(uid="0"))
+        user = result.scalars().first()
+        return user
 
 
 @pytest.fixture()
@@ -160,8 +167,8 @@ def image_create_data():
     return {
         "docker_id": "sha256:xxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "tags": "agentaai/templates_v2:local_test_prompt",
-        "created_at": datetime.now(),
-        "updated_at": datetime.now(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
     }
 
 
@@ -170,30 +177,9 @@ def app_variant_create_data():
     return {
         "variant_name": "v1",
         "parameters": {},
-        "created_at": datetime.now(),
-        "updated_at": datetime.now(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
     }
-
-
-@pytest.fixture()
-def trace_create_data():
-    return {
-        "cost": 0.782,
-        "latency": 20,
-        "status": "completed",
-        "token_consumption": 638,
-        "tags": ["string"],
-        "start_time": str(datetime.now()),
-        "end_time": str(datetime.now()),
-    }
-
-
-@pytest.fixture()
-def feedbacks_create_data():
-    return [
-        {"feedback": "thumbs up", "score": 0, "meta": {}},
-        {"feedback": "thumbs down", "score": 10, "meta": {}},
-    ]
 
 
 @pytest.fixture(scope="session")
@@ -225,12 +211,6 @@ def app_from_template():
     }
 
 
-@pytest.fixture(scope="session")
-async def fetch_user():
-    user = await UserDB.find_one(UserDB.uid == "0", fetch_links=True)
-    return user
-
-
 @pytest.fixture()
 def update_app_variant_parameters():
     return {
@@ -260,6 +240,21 @@ def app_variant_parameters_updated():
             "force_json": 0,
         }
     }
+
+
+@pytest.fixture()
+def evaluators_requiring_llm_keys():
+    evaluators_requiring_llm_keys = [
+        evaluator["key"]
+        for evaluator in get_all_evaluators()
+        if evaluator.get("requires_llm_api_keys", False)
+        or (
+            evaluator.get("settings_template", {})
+            .get("requires_llm_api_keys", {})
+            .get("default", False)
+        )
+    ]
+    return evaluators_requiring_llm_keys
 
 
 @pytest.fixture()
@@ -325,3 +320,175 @@ def auto_ai_critique_evaluator_config():
 @pytest.fixture()
 def deploy_to_environment_payload():
     return {"environment_name": "string", "variant_id": "string"}
+
+
+@pytest.fixture()
+def rag_experiment_data_tree():
+    return simple_rag_trace
+
+
+@pytest.fixture()
+def simple_experiment_data_tree():
+    return simple_finance_assisstant_trace
+
+
+@pytest.fixture()
+def mapper_to_run_auto_exact_match_evaluation():
+    return {
+        "prediction": "diversify.reporter.outputs.report[0]",
+    }
+
+
+@pytest.fixture()
+def mapper_to_run_rag_faithfulness_evaluation():
+    return {
+        "question": "rag.retriever.internals.prompt",
+        "contexts": "rag.retriever.outputs.movies",
+        "answer": "rag.reporter.outputs.report",
+    }
+
+
+@pytest.fixture()
+def rag_faithfulness_evaluator_run_inputs():
+    return {
+        "question_key": "List 6 movies about witches in the genre of fiction.",
+        "contexts_key": [
+            "The Craft (1996) in ['Drama', 'Fantasy', 'Horror']: A newcomer to a Catholic prep high school falls in with a trio of outcast teenage girls who practice witchcraft and they all soon conjure up various spells and curses against those who even slightly anger them.",
+            "Oz the Great and Powerful (2013) in ['Adventure', 'Family', 'Fantasy']: A small-time magician is swept away to an enchanted land and is forced into a power struggle between three witches.",
+            "Snow White: A Tale of Terror (1997) in ['Fantasy', 'Horror']: In this dark take on the fairy tale, the growing hatred of a noblewoman, secretly a practitioner of the dark arts, for her stepdaughter, and the witch's horrifying attempts to kill her.",
+            "Into the Woods (2014) in ['Adventure', 'Fantasy', 'Musical']: A witch tasks a childless baker and his wife with procuring magical items from classic fairy tales to reverse the curse put on their family tree.",
+            "Wicked Stepmother (1989) in ['Comedy', 'Fantasy']: A mother/daughter pair of witches descend on a yuppie family's home and cause havoc, one at a time since they share one body & the other must live in a cat the rest of the time. Now it's up...",
+            "Hocus Pocus (1993) in ['Comedy', 'Family', 'Fantasy']: After three centuries, three witch sisters are resurrected in Salem Massachusetts on Halloween night, and it is up to two teen-agers, a young girl, and an immortal cat to put an end to the witches' reign of terror once and for all.",
+            "Warlock (1989) in ['Action', 'Fantasy', 'Horror']: A warlock flees from the 17th to the 20th century, with a witch-hunter in hot pursuit.",
+            "The Hexer (2001) in ['Adventure', 'Fantasy']: The adventures of Geralt of Rivea, \"The Witcher\".",
+            "Heavy Metal (1981) in ['Animation', 'Adventure', 'Fantasy']: A glowing orb terrorizes a young girl with a collection of stories of dark fantasy, eroticism and horror.",
+        ],
+        "answer_key": 'Witches in fiction are depicted through a mix of horror, fantasy, and dark comedy. \n\n"The Craft" (1996) delves into the complexities of teenage witchcraft, showcasing both empowerment and the darker repercussions of their actions.  \n"Snow White: A Tale of Terror" (1997) offers a sinister twist on the classic story, highlighting the witch\'s envy and vengeful nature.  \n"Hocus Pocus" (1993) delivers a comedic and adventurous take on witchcraft, as three resurrected witches wreak havoc in contemporary Salem',
+    }
+
+
+@pytest.fixture()
+def custom_code_snippet():
+    return "from typing import Dict\nfrom random import uniform\n\ndef evaluate(\n    app_params: Dict[str, str],\n    inputs: Dict[str, str],\n    output: str,  # output of the llm app\n    datapoint: Dict[str, str]  # contains the testset row\n) -> float:\n    return uniform(0.1, 0.9)"
+
+
+@pytest.fixture()
+def evaluators_payload_data(custom_code_snippet):
+    prompt_template = "We have an LLM App that we want to evaluate its outputs. Based on the prompt and the parameters provided below evaluate the output based on the evaluation strategy below:\nEvaluation strategy: 0 to 10 0 is very bad and 10 is very good.\nPrompt: {llm_app_prompt_template}\nInputs: country: {country}\nExpected Answer Column:{correct_answer}\nEvaluate this: {variant_output}\n\nAnswer ONLY with one of the given grading or evaluation options."
+    return {
+        "auto_regex_test": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {
+                "regex_pattern": r"The\s+answer\s+is\s+42[.,]?",
+                "regex_should_match": True,
+            },
+        },
+        "field_match_test": {
+            "inputs": {
+                "ground_truth": {"message": "The correct answer is 42"},
+                "prediction": '{"message": "The correct answer is 42"}',
+            },
+            "settings": {"json_field": "ground_truth"},
+        },
+        "auto_custom_code_run": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+                "app_config": {},
+            },
+            "settings": {
+                "code": custom_code_snippet,
+                "correct_answer_key": "correct_answer",
+            },
+        },
+        "auto_ai_critique": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {
+                "prompt_template": prompt_template,
+                "correct_answer_key": "correct_answer",
+            },
+            "credentials": {"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]},
+        },
+        "auto_starts_with": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {"prefix": "The", "case_sensitive": False},
+        },
+        "auto_ends_with": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {"suffix": "42", "case_sensitive": False},
+        },
+        "auto_contains": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {"substring": "answer is", "case_sensitive": False},
+        },
+        "auto_contains_any": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {"substrings": "The,answer,42", "case_sensitive": False},
+        },
+        "auto_contains_all": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {"substrings": "The,answer,is,42", "case_sensitive": False},
+        },
+        "auto_contains_json": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": '{"message": "The answer is 42"}',
+            },
+        },
+        "auto_json_diff": {
+            "inputs": {
+                "ground_truth": '{"message": "The correct answer is 42"}',
+                "prediction": '{"message": "The answer is 42"}',
+            },
+            "settings": {
+                "compare_schema_only": True,
+                "predict_keys": True,
+                "case_insensitive_keys": False,
+            },
+        },
+        "auto_levenshtein_distance": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {"threshold": 0.4},
+        },
+        "auto_similarity_match": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "settings": {
+                "similarity_threshold": 0.4,
+                "correct_answer_key": "correct_answer",
+            },
+        },
+        "auto_semantic_similarity": {
+            "inputs": {
+                "ground_truth": "The correct answer is 42",
+                "prediction": "The answer is 42",
+            },
+            "credentials": {"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]},
+        },
+    }

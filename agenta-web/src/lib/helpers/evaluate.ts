@@ -1,4 +1,4 @@
-import {HumanEvaluationListTableDataType} from "@/components/Evaluations/HumanEvaluationResult"
+import {HumanEvaluationListTableDataType, SingleModelEvaluationListTableDataType} from "@/lib/Types"
 import {
     Evaluation,
     GenericObject,
@@ -8,12 +8,16 @@ import {
     EvaluationScenario,
 } from "../Types"
 import {convertToCsv, downloadCsv} from "./fileManipulations"
-import {fetchEvaluatonIdsByResource} from "@/services/evaluations"
+import {fetchEvaluatonIdsByResource} from "@/services/evaluations/api"
 import {getAppValues} from "@/contexts/app.context"
 import AlertPopup from "@/components/AlertPopup/AlertPopup"
-import {capitalize, round} from "lodash"
+import capitalize from "lodash/capitalize"
+import round from "lodash/round"
 import dayjs from "dayjs"
 import {runningStatuses} from "@/components/pages/evaluations/cellRenderers/cellRenderers"
+import {formatCurrency, formatLatency} from "./formatters"
+import {isDemo} from "./utils"
+import {EvaluationType} from "../enums"
 
 export const exportExactEvaluationData = (evaluation: Evaluation, rows: GenericObject[]) => {
     const exportRow = rows.map((data, ix) => {
@@ -237,10 +241,7 @@ export const getVotesPercentage = (record: HumanEvaluationListTableDataType, ind
 export const checkIfResourceValidForDeletion = async (
     data: Omit<Parameters<typeof fetchEvaluatonIdsByResource>[0], "appId">,
 ) => {
-    const appId = getAppValues().currentApp?.app_id
-    if (!appId) return false
-
-    const response = await fetchEvaluatonIdsByResource({...data, appId})
+    const response = await fetchEvaluatonIdsByResource(data)
     if (response.data.length > 0) {
         const name =
             (data.resourceType === "testset"
@@ -269,11 +270,19 @@ export function getTypedValue(res?: TypedValue) {
 
     if (value === undefined) return "-"
 
-    return type === "number"
-        ? round(Number(value), 2)
-        : ["boolean", "bool"].includes(type as string)
-          ? capitalize(value?.toString())
-          : value?.toString()
+    switch (type) {
+        case "number":
+            return round(Number(value), 2)
+        case "boolean":
+        case "bool":
+            return capitalize(value?.toString())
+        case "cost":
+            return formatCurrency(Number(value))
+        case "latency":
+            return formatLatency(Number(value))
+        default:
+            return value?.toString()
+    }
 }
 
 type CellDataType = "number" | "text" | "date"
@@ -324,8 +333,115 @@ const getCustomComparator = (type: CellDataType) => (valueA: string, valueB: str
         const num = parseFloat(val || "0")
         return isNaN(num) ? 0 : num
     }
-    if (type === "date") return dayjs(valueA).diff(dayjs(valueB))
-    if (type === "text") return valueA.localeCompare(valueB)
-    if (type === "number") return getNumber(valueA) - getNumber(valueB)
-    return 0
+
+    valueA = String(valueA)
+    valueB = String(valueB)
+
+    switch (type) {
+        case "date":
+            return dayjs(valueA).diff(dayjs(valueB))
+        case "text":
+            return valueA.localeCompare(valueB)
+        case "number":
+            return getNumber(valueA) - getNumber(valueB)
+        default:
+            return 0
+    }
+}
+
+export const removeCorrectAnswerPrefix = (str: string) => {
+    return str.replace(/^correctAnswer_/, "")
+}
+
+export const mapTestcaseAndEvalValues = (
+    settingsValues: Record<string, any>,
+    selectedTestcase: Record<string, any>,
+) => {
+    let testcaseObj: Record<string, any> = {}
+    let evalMapObj: Record<string, any> = {}
+
+    Object.entries(settingsValues).forEach(([key, value]) => {
+        if (typeof value === "string" && value.startsWith("testcase.")) {
+            testcaseObj[key] = selectedTestcase[value.split(".")[1]]
+        } else {
+            evalMapObj[key] = value
+        }
+    })
+
+    return {testcaseObj, evalMapObj}
+}
+
+export const transformTraceKeysInSettings = (
+    settingsValues: Record<string, any>,
+): Record<string, any> => {
+    return Object.keys(settingsValues).reduce(
+        (acc, curr) => {
+            if (
+                !acc[curr] &&
+                typeof settingsValues[curr] === "string" &&
+                settingsValues[curr].startsWith("trace.")
+            ) {
+                acc[curr] = settingsValues[curr].replace("trace.", "")
+            } else {
+                acc[curr] = settingsValues[curr]
+            }
+
+            return acc
+        },
+        {} as Record<string, any>,
+    )
+}
+
+export const getEvaluatorTags = () => {
+    const evaluatorTags = [
+        {
+            label: "Classifiers",
+            value: "classifiers",
+        },
+        {
+            label: "Similarity",
+            value: "similarity",
+        },
+        {
+            label: "AI / LLM",
+            value: "ai_llm",
+        },
+        {
+            label: "Functional",
+            value: "functional",
+        },
+    ]
+
+    if (isDemo()) {
+        evaluatorTags.unshift({
+            label: "RAG",
+            value: "rag",
+        })
+    }
+
+    return evaluatorTags
+}
+
+export const calculateAvgScore = (evaluation: SingleModelEvaluationListTableDataType) => {
+    let score = 0
+    if (evaluation.scoresData) {
+        score =
+            ((evaluation.scoresData.correct?.length || evaluation.scoresData.true?.length || 0) /
+                evaluation.scoresData.nb_of_rows) *
+            100
+    } else if (evaluation.resultsData) {
+        const multiplier = {
+            [EvaluationType.auto_webhook_test]: 100,
+            [EvaluationType.single_model_test]: 1,
+        }
+        score = calculateResultsDataAvg(
+            evaluation.resultsData,
+            multiplier[evaluation.evaluationType as keyof typeof multiplier],
+        )
+        score = isNaN(score) ? 0 : score
+    } else if (evaluation.avgScore) {
+        score = evaluation.avgScore * 100
+    }
+
+    return score
 }

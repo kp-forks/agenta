@@ -10,7 +10,7 @@ from agenta_backend.utils.common import APIRouter, isCloudEE
 from agenta_backend.models.api.api_models import BaseOutput
 
 if isCloudEE():
-    from agenta_backend.commons.models.db_models import Permission
+    from agenta_backend.commons.models.shared_models import Permission
     from agenta_backend.commons.utils.permissions import check_action_access
 
 
@@ -22,7 +22,7 @@ logger.setLevel(logging.DEBUG)
 @router.get("/", response_model=List[BaseOutput], operation_id="list_bases")
 async def list_bases(
     request: Request,
-    app_id: Optional[str] = None,
+    app_id: str,
     base_name: Optional[str] = None,
 ) -> List[BaseOutput]:
     """
@@ -30,7 +30,7 @@ async def list_bases(
 
     Args:
         request (Request): The incoming request.
-        app_id (Optional[str], optional): The ID of the app to filter by. Defaults to None.
+        app_id (str): The ID of the app to filter by.
         base_name (Optional[str], optional): The name of the base to filter by. Defaults to None.
 
     Returns:
@@ -40,11 +40,11 @@ async def list_bases(
         HTTPException: If there was an error retrieving the bases.
     """
     try:
+        app = await db_manager.fetch_app_by_id(app_id=app_id)
         if isCloudEE() and app_id is not None:
             has_permission = await check_action_access(
                 user_uid=request.state.user_id,
-                object_id=app_id,
-                object_type="app",
+                project_id=str(app.project_i),
                 permission=Permission.VIEW_APPLICATION,
             )
             if not has_permission:

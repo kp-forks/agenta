@@ -1,32 +1,33 @@
 import React, {useEffect, useMemo, useState} from "react"
-import {Breadcrumb, Button, ConfigProvider, Dropdown, Layout, Space, Tooltip, theme} from "antd"
+import {Breadcrumb, Button, ConfigProvider, Layout, Modal, Space, Typography, theme} from "antd"
 import Sidebar from "../Sidebar/Sidebar"
 import {GithubFilled, LinkedinFilled, TwitterOutlined} from "@ant-design/icons"
 import Link from "next/link"
-import {isDemo, renameVariablesCapitalizeAll} from "@/lib/helpers/utils"
+import {isDemo} from "@/lib/helpers/utils"
 import {useAppTheme} from "./ThemeContextProvider"
 import {useElementSize} from "usehooks-ts"
 import {createUseStyles} from "react-jss"
 import NoSSRWrapper from "../NoSSRWrapper/NoSSRWrapper"
 import {ErrorBoundary} from "react-error-boundary"
 import ErrorFallback from "./ErrorFallback"
-import {fetchData} from "@/lib/services/api"
 import {useAppsData} from "@/contexts/app.context"
 import {useRouter} from "next/router"
-import Image from "next/image"
-import moonIcon from "@/media/night.png"
-import sunIcon from "@/media/sun.png"
 import {useProfileData} from "@/contexts/profile.context"
 import {ThemeProvider} from "react-jss"
+import {JSSTheme, StyleProps as MainStyleProps} from "@/lib/Types"
+import {Lightning} from "@phosphor-icons/react"
+import packageJsonData from "../../../package.json"
+import {useProjectData} from "@/contexts/project.context"
+import {dynamicContext} from "@/lib/helpers/dynamic"
 
 const {Content, Footer} = Layout
+const {Text} = Typography
 
-type StyleProps = {
-    themeMode: "dark" | "light"
+interface StyleProps extends MainStyleProps {
     footerHeight: number
 }
 
-const useStyles = createUseStyles({
+const useStyles = createUseStyles((theme: JSSTheme) => ({
     layout: ({themeMode}: StyleProps) => ({
         display: "flex",
         background: themeMode === "dark" ? "#141414" : "#ffffff",
@@ -38,49 +39,17 @@ const useStyles = createUseStyles({
         height: `calc(100% - ${footerHeight ?? 0}px)`,
         paddingLeft: "1.5rem",
         paddingRight: "1.5rem",
-        // marginLeft: 225,
         marginBottom: `calc(2rem + ${footerHeight ?? 0}px)`,
         flex: 1,
     }),
     breadcrumbContainer: {
+        display: "flex",
+        alignItems: "center",
         justifyContent: "space-between",
         width: "100%",
-    },
-    breadcrumb: {
-        padding: "24px 0",
-    },
-    star: ({themeMode}: StyleProps) => ({
-        display: "flex",
-        alignItems: "center",
-        padding: 0,
-        height: 30,
-        borderWidth: 2,
-        borderColor: themeMode === "dark" ? "#333" : "#dfdfdf",
-        "& div:nth-of-type(1)": {
-            display: "flex",
-            alignItems: "center",
-            height: "100%",
-            width: "100%",
-            gap: 8,
-            padding: "0 10px",
-            background: themeMode === "dark" ? "#333" : "#dfdfdf",
-            borderTopLeftRadius: 3,
-            borderBottomLeftRadius: 3,
-        },
-        "& div:nth-of-type(2)": {
-            padding: "0 15px",
-        },
-    }),
-    joinBtn: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        "& span": {
-            display: "block",
-        },
-        "& img": {
-            width: "15px",
-        },
+        padding: "8px 1.5rem",
+        marginBottom: 24,
+        borderBottom: "1px solid #eaeff5",
     },
     footer: {
         position: "absolute",
@@ -103,12 +72,45 @@ const useStyles = createUseStyles({
         display: "flex",
         alignItems: "center",
         gap: "1rem",
-        "& >span": {
-            cursor: "pointer",
-            marginTop: 3,
+        "& span.ant-typography": {
+            color: "rgba(0, 0, 0, 0.45)",
         },
     },
-})
+    banner: {
+        position: "sticky",
+        zIndex: 10,
+        top: 0,
+        left: 0,
+        height: 38,
+        backgroundColor: "#1c2c3d",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        color: "#fff",
+        fontSize: 12,
+        lineHeight: "20px",
+        fontWeight: 500,
+        "& span": {
+            fontWeight: 600,
+        },
+    },
+    notFoundContainer: {
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100vh",
+        alignItems: "center",
+        justifyContent: "center",
+        "& .ant-typography:nth-of-type(1)": {
+            fontSize: 24,
+            fontWeight: 600,
+        },
+        "& .ant-typography:nth-of-type(2)": {
+            fontSize: 14,
+            marginTop: 8,
+        },
+    },
+}))
 
 type LayoutProps = {
     children: React.ReactNode
@@ -116,16 +118,25 @@ type LayoutProps = {
 
 const App: React.FC<LayoutProps> = ({children}) => {
     const {user} = useProfileData()
-    const {appTheme, themeMode, toggleAppTheme} = useAppTheme()
-    const {currentApp} = useAppsData()
-    const capitalizedAppName = renameVariablesCapitalizeAll(currentApp?.app_name || "")
+    const {appTheme} = useAppTheme()
+    const {currentApp, isLoading, error} = useAppsData()
     const [footerRef, {height: footerHeight}] = useElementSize()
+    const {project, projects} = useProjectData()
     const classes = useStyles({themeMode: appTheme, footerHeight} as StyleProps)
-    const [starCount, setStarCount] = useState(0)
     const router = useRouter()
     const appId = router.query.app_id as string
     const isDarkTheme = appTheme === "dark"
     const {token} = theme.useToken()
+    const [modal, contextHolder] = Modal.useModal()
+
+    const [useOrgData, setUseOrgData] = useState<Function>(() => () => "")
+    const {changeSelectedOrg} = useOrgData()
+
+    useEffect(() => {
+        dynamicContext("org.context", {useOrgData}).then((context) => {
+            setUseOrgData(() => context.useOrgData)
+        })
+    }, [])
 
     useEffect(() => {
         if (user && isDemo()) {
@@ -182,19 +193,6 @@ const App: React.FC<LayoutProps> = ({children}) => {
     )
 
     useEffect(() => {
-        const githubRepo = async () => {
-            try {
-                fetchData("https://api.github.com/repos/Agenta-AI/agenta").then((resp) => {
-                    setStarCount(resp.stargazers_count)
-                })
-            } catch (error) {
-                console.log(error)
-            }
-        }
-        githubRepo()
-    }, [])
-
-    useEffect(() => {
         if (typeof window === "undefined") return () => {}
 
         const body = document.body
@@ -207,107 +205,125 @@ const App: React.FC<LayoutProps> = ({children}) => {
     }, [appTheme])
 
     // wait unitl we have the app id, if its an app route
-    if (isAppRoute && (!appId || !currentApp)) return null
+    if (isAppRoute && (!appId || !project)) return null
+
+    if (appId && !currentApp && !isLoading && !error)
+        return (
+            <div className={classes.notFoundContainer}>
+                <Typography.Text>404 - Page Not Found</Typography.Text>
+                <Typography.Text>This page could not be found.</Typography.Text>
+
+                <Button type="primary" onClick={() => router.push("/apps")}>
+                    Back To Apps
+                </Button>
+            </div>
+        )
+
+    const isAuthRoute =
+        router.pathname.includes("/auth") || router.pathname.includes("/post-signup")
+
+    const handleBackToWorkspaceSwitch = () => {
+        const project = projects.find((p) => p.user_role === "owner")
+        if (project && !project.is_demo) {
+            changeSelectedOrg(project.organization_id)
+        }
+    }
 
     return (
         <NoSSRWrapper>
             {typeof window === "undefined" ? null : (
                 <ThemeProvider theme={{...token, isDark: isDarkTheme}}>
-                    <Layout hasSider className={classes.layout}>
-                        <Sidebar />
+                    {isAuthRoute ? (
                         <Layout className={classes.layout}>
-                            <Content className={classes.content}>
-                                <Space className={classes.breadcrumbContainer}>
-                                    <Breadcrumb
-                                        className={classes.breadcrumb}
-                                        items={[
-                                            {title: <Link href="/apps">Apps</Link>},
-                                            {title: capitalizedAppName},
-                                        ]}
-                                    />
-                                    <div className={classes.topRightBar}>
-                                        <Dropdown
-                                            trigger={["click"]}
-                                            menu={{
-                                                items: [
-                                                    {
-                                                        key: "system",
-                                                        label: "System",
-                                                        onClick: () => toggleAppTheme("system"),
-                                                    },
-                                                    {
-                                                        key: "light",
-                                                        label: "Light",
-                                                        onClick: () => toggleAppTheme("light"),
-                                                    },
-                                                    {
-                                                        key: "dark",
-                                                        label: "Dark",
-                                                        onClick: () => toggleAppTheme("dark"),
-                                                    },
-                                                ],
-                                                selectedKeys: [themeMode],
-                                            }}
-                                        >
-                                            <a onClick={(e) => e.preventDefault()}>
-                                                <Tooltip title="Change theme">
-                                                    <Image
-                                                        alt={`Curren Theme: ${
-                                                            isDarkTheme ? "dark" : "light"
-                                                        }`}
-                                                        src={isDarkTheme ? sunIcon : moonIcon}
-                                                        width={24}
-                                                        height={24}
-                                                    />
-                                                </Tooltip>
-                                            </a>
-                                        </Dropdown>
-                                        <Button
-                                            href="https://join.slack.com/t/agenta-hq/shared_invite/zt-1zsafop5i-Y7~ZySbhRZvKVPV5DO_7IA"
-                                            target="_blank"
-                                            className={classes.joinBtn}
-                                        >
-                                            <img src="/assets/slack.png" alt="Slack Image" />
-                                            <span>Join us</span>
-                                        </Button>
-                                        <Button
-                                            className={classes.star}
-                                            href="https://github.com/Agenta-AI/agenta"
-                                        >
-                                            <div>
-                                                <GithubFilled style={{fontSize: 18}} />
-                                                <p>Star</p>
-                                            </div>
-                                            <div>{starCount || 0}</div>
-                                        </Button>
-                                    </div>
-                                </Space>
-                                <ErrorBoundary FallbackComponent={ErrorFallback}>
-                                    {children}
-                                </ErrorBoundary>
-                            </Content>
-                            <Footer ref={footerRef} className={classes.footer}>
-                                <Space className={classes.footerLeft} size={10}>
-                                    <Link
-                                        href={"https://github.com/Agenta-AI/agenta"}
-                                        target="_blank"
-                                    >
-                                        <GithubFilled className={classes.footerLinkIcon} />
-                                    </Link>
-                                    <Link
-                                        href={"https://www.linkedin.com/company/agenta-ai/"}
-                                        target="_blank"
-                                    >
-                                        <LinkedinFilled className={classes.footerLinkIcon} />
-                                    </Link>
-                                    <Link href={"https://twitter.com/agenta_ai"} target="_blank">
-                                        <TwitterOutlined className={classes.footerLinkIcon} />
-                                    </Link>
-                                </Space>
-                                <div>Copyright © {new Date().getFullYear()} | Agenta.</div>
-                            </Footer>
+                            <ErrorBoundary FallbackComponent={ErrorFallback}>
+                                {children}
+                                {contextHolder}
+                            </ErrorBoundary>
                         </Layout>
-                    </Layout>
+                    ) : (
+                        // !isAuthRoute && isProjectId
+                        <div>
+                            {project?.is_demo && (
+                                <div className={classes.banner}>
+                                    You are in <span>a view-only</span> demo workspace. To go back
+                                    to your workspace{" "}
+                                    <span
+                                        className="cursor-pointer"
+                                        onClick={handleBackToWorkspaceSwitch}
+                                    >
+                                        click here
+                                    </span>
+                                </div>
+                            )}
+                            <Layout hasSider className={classes.layout}>
+                                <Sidebar />
+                                <Layout className={classes.layout}>
+                                    <div>
+                                        <div className={classes.breadcrumbContainer}>
+                                            <Breadcrumb
+                                                items={[
+                                                    {
+                                                        title: (
+                                                            <div className="flex items-center gap-1">
+                                                                <Lightning size={16} />
+                                                                <Link href="/apps">Apps</Link>
+                                                            </div>
+                                                        ),
+                                                    },
+                                                    {title: currentApp?.app_name || ""},
+                                                ]}
+                                            />
+                                            <div className={classes.topRightBar}>
+                                                <Text>agenta v{packageJsonData.version}</Text>
+                                            </div>
+                                        </div>
+                                        <Content className={classes.content}>
+                                            <ErrorBoundary FallbackComponent={ErrorFallback}>
+                                                <ConfigProvider
+                                                    theme={{
+                                                        algorithm:
+                                                            appTheme === "dark"
+                                                                ? theme.darkAlgorithm
+                                                                : theme.defaultAlgorithm,
+                                                    }}
+                                                >
+                                                    {children}
+                                                </ConfigProvider>
+                                                {contextHolder}
+                                            </ErrorBoundary>
+                                        </Content>
+                                    </div>
+                                    <Footer ref={footerRef} className={classes.footer}>
+                                        <Space className={classes.footerLeft} size={10}>
+                                            <Link
+                                                href={"https://github.com/Agenta-AI/agenta"}
+                                                target="_blank"
+                                            >
+                                                <GithubFilled className={classes.footerLinkIcon} />
+                                            </Link>
+                                            <Link
+                                                href={"https://www.linkedin.com/company/agenta-ai/"}
+                                                target="_blank"
+                                            >
+                                                <LinkedinFilled
+                                                    className={classes.footerLinkIcon}
+                                                />
+                                            </Link>
+                                            <Link
+                                                href={"https://twitter.com/agenta_ai"}
+                                                target="_blank"
+                                            >
+                                                <TwitterOutlined
+                                                    className={classes.footerLinkIcon}
+                                                />
+                                            </Link>
+                                        </Space>
+                                        <div>Copyright © {new Date().getFullYear()} | Agenta.</div>
+                                    </Footer>
+                                </Layout>
+                            </Layout>
+                        </div>
+                    )}
                 </ThemeProvider>
             )}
         </NoSSRWrapper>

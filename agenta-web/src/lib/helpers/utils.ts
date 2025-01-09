@@ -7,43 +7,13 @@ import dayjs from "dayjs"
 import utc from "dayjs/plugin/utc"
 import {notification} from "antd"
 import Router from "next/router"
+import {getApikeys, LlmProvider} from "./llmProviders"
+import yaml from "js-yaml"
 
 if (typeof window !== "undefined") {
     //@ts-ignore
     if (!window.Cypress) {
         dayjs.extend(utc)
-    }
-}
-
-const llmAvailableProvidersToken = "llmAvailableProvidersToken"
-
-export type LlmProvider = {
-    title: string
-    key: string
-    name: string
-}
-
-export const llmAvailableProviders: LlmProvider[] = [
-    {title: "OpenAI", key: "", name: "OPENAI_API_KEY"},
-    {title: "Replicate", key: "", name: "REPLICATE_API_KEY"},
-    {title: "Hugging Face", key: "", name: "HUGGING_FACE_API_KEY"},
-    {title: "Cohere", key: "", name: "COHERE_API_KEY"},
-    {title: "Anthropic", key: "", name: "ANTHROPIC_API_KEY"},
-    {title: "Azure API Key", key: "", name: "AZURE_API_KEY"},
-    {title: "Azure API Base", key: "", name: "AZURE_API_BASE"},
-    {title: "TogetherAI", key: "", name: "TOGETHERAI_API_KEY"},
-]
-
-export const getAllLlmProviderKeysAsEnvVariable = () => {
-    return {
-        OPENAI_API_KEY: getLlmProviderKey("OpenAI"),
-        REPLICATE_API_KEY: getLlmProviderKey("Replicate"),
-        HUGGING_FACE_API_KEY: getLlmProviderKey("Hugging Face"),
-        COHERE_API_KEY: getLlmProviderKey("Cohere"),
-        ANTHROPIC_API_KEY: getLlmProviderKey("Anthropic"),
-        AZURE_API_KEY: getLlmProviderKey("Azure API Key"),
-        AZURE_API_BASE: getLlmProviderKey("Azure API Base"),
-        TOGETHERAI_API_KEY: getLlmProviderKey("TogetherAI"),
     }
 }
 
@@ -72,98 +42,21 @@ export const EvaluationTypeLabels: Record<EvaluationType, string> = {
     [EvaluationType.custom_code_run]: "Custom Code Run",
     [EvaluationType.auto_regex_test]: "Regex Test",
     [EvaluationType.field_match_test]: "JSON Field Match",
+    [EvaluationType.auto_json_diff]: "JSON Diff Match",
+    [EvaluationType.auto_semantic_similarity]: "Semantic Similarity Match",
     [EvaluationType.auto_webhook_test]: "Webhook Test",
     [EvaluationType.single_model_test]: "Single Model Test",
+    [EvaluationType.rag_faithfulness]: "RAG Faithfulness",
+    [EvaluationType.rag_context_relevancy]: "RAG Context Relevancy",
 }
 
-export const getApikeys = () => {
-    if (typeof window !== "undefined") {
-        const llmAvailableProvidersTokenString = localStorage.getItem(llmAvailableProvidersToken)
-        let apiKeys: Array<{title: string; key: string; name: string}> = []
+export const apiKeyObject = (apiKeys: LlmProvider[]) => {
+    if (!apiKeys) return {}
 
-        if (llmAvailableProvidersTokenString !== null) {
-            const llmAvailableProvidersTokenArray = JSON.parse(llmAvailableProvidersTokenString)
-
-            if (
-                Array.isArray(llmAvailableProvidersTokenArray) &&
-                llmAvailableProvidersTokenArray.length > 0
-            ) {
-                for (let i = 0; i < llmAvailableProvidersTokenArray.length; i++) {
-                    if (llmAvailableProvidersTokenArray[i].key !== "") {
-                        apiKeys.push(llmAvailableProvidersTokenArray[i])
-                    }
-                }
-            }
-        }
-        return apiKeys
-    }
-}
-
-export const apiKeyObject = () => {
-    const apiKey = getApikeys()
-
-    if (!apiKey) return {}
-
-    return apiKey.reduce(
-        (acc, {key, name}) => {
-            acc[name] = key
-            return acc
-        },
-        {} as Record<string, string>,
-    )
-}
-
-export const saveLlmProviderKey = (providerIdx: number, keyValue: string) => {
-    if (typeof window !== "undefined") {
-        // TODO: add encryption here
-        const keys = JSON.parse(localStorage.getItem(llmAvailableProvidersToken) ?? "[{}]")
-        keys[providerIdx].key = keyValue
-        localStorage.setItem(llmAvailableProvidersToken, JSON.stringify(keys))
-    }
-}
-
-export const getLlmProviderKey = (providerName: string) =>
-    getAllProviderLlmKeys().find((item: LlmProvider) => item.title === providerName)
-
-export const getAllProviderLlmKeys = () => {
-    if (typeof window !== "undefined") {
-        const inStorage = localStorage.getItem(llmAvailableProvidersToken)
-        if (inStorage) {
-            const parsedArray = JSON.parse(inStorage)
-            const updatedLlmAvailableProviders = parsedArray.map(
-                (item: LlmProvider, index: number) => {
-                    if (!item.hasOwnProperty("name")) {
-                        item.name = llmAvailableProviders[index].name
-                    }
-                    return item
-                },
-            )
-
-            localStorage.setItem(
-                llmAvailableProvidersToken,
-                JSON.stringify(updatedLlmAvailableProviders),
-            )
-
-            return updatedLlmAvailableProviders
-        }
-        localStorage.setItem(llmAvailableProvidersToken, JSON.stringify(llmAvailableProviders))
-    }
-
-    return llmAvailableProviders
-}
-
-export const removeSingleLlmProviderKey = (providerIdx: number) => {
-    if (typeof window !== "undefined") {
-        const keys = JSON.parse(localStorage.getItem(llmAvailableProvidersToken) ?? "[{}]")
-        keys[providerIdx].key = ""
-        localStorage.setItem(llmAvailableProvidersToken, JSON.stringify(keys))
-    }
-}
-
-export const removeLlmProviderKey = () => {
-    if (typeof window !== "undefined") {
-        localStorage.removeItem(llmAvailableProvidersToken)
-    }
+    return apiKeys.reduce((acc: GenericObject, {key, name}: GenericObject) => {
+        if (key) acc[name] = key
+        return acc
+    }, {})
 }
 
 export const capitalize = (s: string) => {
@@ -215,7 +108,7 @@ export const stringToNumberInRange = (text: string, min: number, max: number) =>
 
 export const isDemo = () => {
     if (process.env.NEXT_PUBLIC_FF) {
-        return ["cloud", "ee"].includes(process.env.NEXT_PUBLIC_FF)
+        return ["cloud", "ee", "cloud-dev"].includes(process.env.NEXT_PUBLIC_FF)
     }
     return false
 }
@@ -230,10 +123,9 @@ export const removeKeys = (obj: GenericObject, keys: string[]) => {
 
 export const safeParse = (str: string, fallback: any = "") => {
     try {
+        if (!str) return fallback
         return JSON.parse(str)
     } catch (error) {
-        console.log("error parsing JSON:", error)
-        console.log("fallbacking to:", fallback)
         return fallback
     }
 }
@@ -265,8 +157,8 @@ export const withRetry = (
         (retry, attempt) =>
             func().catch((e) => {
                 if (logErrors) {
-                    console.log("Error: ", getErrorMessage(e))
-                    console.log("Retry attempt: ", attempt)
+                    console.error("Error: ", getErrorMessage(e))
+                    console.error("Retry attempt: ", attempt)
                 }
                 retry(e)
             }),
@@ -302,7 +194,7 @@ export async function batchExecute(
             return await (allowRetry ? withRetry(f, {logErrors, ...(retryConfig || {})}) : f())
         } catch (e) {
             if (supressErrors) {
-                if (logErrors) console.log("Ignored error:", getErrorMessage(e))
+                if (logErrors) console.error("Ignored error:", getErrorMessage(e))
                 return {__error: e}
             }
             throw e
@@ -413,9 +305,81 @@ export const redirectIfNoLLMKeys = () => {
     return false
 }
 
+export const randNum = (min: number, max: number) =>
+    Math.floor(Math.random() * (max - min + 1) + min)
+
 export const snakeToTitle = (str: string) => {
     return str
         .split("_")
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(" ")
+}
+
+export const getInitials = (str: string, limit = 2) => {
+    let initialText = "E"
+
+    try {
+        initialText = str
+            ?.split(" ")
+            .slice(0, limit)
+            ?.reduce((acc, curr) => acc + (curr[0] || "")?.toUpperCase(), "")
+    } catch (error) {
+        console.error("Error using getInitials", error)
+    }
+
+    return initialText
+}
+
+export const getStringOrJson = (value: any) => {
+    return typeof value === "string" ? value : JSON.stringify(value, null, 2)
+}
+
+export const getYamlOrJson = (format: "JSON" | "YAML", data: any) => {
+    try {
+        return format === "YAML" ? yaml.dump(data) : getStringOrJson(data)
+    } catch (error) {
+        return getStringOrJson(data)
+    }
+}
+
+export const filterVariantParameters = ({
+    record,
+    key,
+    include = true,
+}: {
+    record: Record<string, any>
+    key: string
+    include?: boolean
+}) => {
+    return Object.keys(record).reduce(
+        (acc, curr) => {
+            const condition = curr.includes(key)
+            if ((record.hasOwnProperty(curr) && include && condition) || (!include && !condition)) {
+                acc[curr] = record[curr]
+            }
+            return acc
+        },
+        {} as Record<string, any>,
+    )
+}
+
+export const formatVariantIdWithHash = (variantId: string) => {
+    return `# ${variantId.split("-")[0]}`
+}
+
+export const collectKeyPathsFromObject = (obj: any, prefix = ""): string[] => {
+    const paths: string[] = []
+
+    for (const [key, value] of Object.entries(obj)) {
+        const fullPath = prefix ? `${prefix}.${key}` : key
+
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+            const nestedPaths = collectKeyPathsFromObject(value, fullPath)
+            paths.push(...nestedPaths)
+        } else {
+            paths.push(fullPath)
+        }
+    }
+
+    return paths
 }
