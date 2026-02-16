@@ -151,6 +151,7 @@ export const fetchAllEvaluatorConfigs = async (
     return evaluators
         .filter((item) => !item.deleted_at)
         .filter((item) => item.flags?.is_human !== true)
+        .filter((item) => item.flags?.is_custom !== true)
         .map(decorateSimpleEvaluator)
 }
 
