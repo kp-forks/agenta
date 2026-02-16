@@ -331,7 +331,6 @@ def _get_event_name_from_path(
 
     elif method == "POST" and (
         path == "/preview/evaluations/runs/"
-        or "/evaluations/preview/start" in path
         or path == "/preview/simple/evaluations/"
     ):
         return "evaluation_created"
