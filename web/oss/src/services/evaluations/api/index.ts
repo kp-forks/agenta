@@ -187,7 +187,7 @@ export const createEvaluation = async (appId: string, evaluation: CreateEvaluati
     const name = "name" in evaluation ? evaluation.name : "Evaluation" // Default name for legacy variant
 
     // Use simple evaluations endpoint which auto-starts execution
-    return await axios.post(`/preview/simple/evaluations?project_id=${projectId}`, {
+    return await axios.post(`/preview/simple/evaluations/?project_id=${projectId}`, {
         evaluation: {
             name,
             data: {
