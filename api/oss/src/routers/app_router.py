@@ -247,17 +247,6 @@ async def create_app(
 
     adapter = get_legacy_adapter()
 
-    # Check if app already exists
-    existing_app = await adapter.fetch_app_by_name(
-        project_id=UUID(request.state.project_id),
-        app_name=payload.app_name,
-    )
-    if existing_app is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="An app with this name already exists in this project.",
-        )
-
     try:
         app_output = await adapter.create_app(
             project_id=UUID(request.state.project_id),
