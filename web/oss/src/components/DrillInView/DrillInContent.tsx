@@ -565,7 +565,7 @@ export function DrillInContent({
                         const isDrilledPrimitive =
                             currentPath.length > 0 &&
                             currentPath[currentPath.length - 1] === item.key &&
-                            filteredLevelItems.length === 1 &&
+                            currentLevelItems.length === 1 &&
                             !isExpandable(item.value)
                         const fullPath = isDrilledPrimitive
                             ? currentPath
