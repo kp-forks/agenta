@@ -92,6 +92,8 @@ export interface DrillInContentProps {
     initialPath?: string | string[]
     /** Callback when navigation path changes */
     onPathChange?: (path: string[]) => void
+    /** Keys to exclude when displaying items at the initial path level (e.g., ["parameters"] to hide parameters from ag.data view) */
+    excludeKeys?: string[]
 }
 
 /**
@@ -122,6 +124,7 @@ export function DrillInContent({
     onLockedFieldTypesChange,
     initialPath,
     onPathChange,
+    excludeKeys,
 }: DrillInContentProps) {
     // Parse initialPath to array format, removing rootTitle prefix if present
     const parsedInitialPath = (() => {
@@ -237,6 +240,13 @@ export function DrillInContent({
         },
         [valueMode],
     )
+
+    // Check if current path is at the initial path level (where excludeKeys should apply)
+    const isAtInitialPathLevel = useMemo(() => {
+        if (!excludeKeys?.length) return false
+        if (currentPath.length !== parsedInitialPath.length) return false
+        return parsedInitialPath.every((segment, i) => currentPath[i] === segment)
+    }, [currentPath, parsedInitialPath, excludeKeys])
 
     // Get current level items
     const currentLevelItems = useMemo((): PathItem[] => {
@@ -356,6 +366,12 @@ export function DrillInContent({
         const fieldName = currentPath[currentPath.length - 1] || "value"
         return [{key: fieldName, name: fieldName, value: value, isColumn: false}]
     }, [currentPath, currentValue, getRootItems, valueMode])
+
+    // Apply excludeKeys filter when at the initial path level
+    const filteredLevelItems = useMemo(() => {
+        if (!isAtInitialPathLevel || !excludeKeys?.length) return currentLevelItems
+        return currentLevelItems.filter((item) => !excludeKeys.includes(item.key))
+    }, [currentLevelItems, isAtInitialPathLevel, excludeKeys])
 
     // Check if a value is expandable
     const isExpandable = useCallback(
@@ -535,12 +551,12 @@ export function DrillInContent({
                 </div>
 
                 {/* Current level items */}
-                {currentLevelItems.length === 0 && (
+                {filteredLevelItems.length === 0 && (
                     <div className="text-gray-500 text-sm">No items to display</div>
                 )}
 
                 <div className="flex flex-col gap-2">
-                    {currentLevelItems.map((item) => {
+                    {filteredLevelItems.map((item) => {
                         const fieldKey = `${currentPath.join(".")}.${item.key}`
                         // When drilling into a primitive, currentPath already contains the full path
                         // and item.key is just the last segment (duplicate). Use currentPath directly.
@@ -549,7 +565,7 @@ export function DrillInContent({
                         const isDrilledPrimitive =
                             currentPath.length > 0 &&
                             currentPath[currentPath.length - 1] === item.key &&
-                            currentLevelItems.length === 1 &&
+                            filteredLevelItems.length === 1 &&
                             !isExpandable(item.value)
                         const fullPath = isDrilledPrimitive
                             ? currentPath

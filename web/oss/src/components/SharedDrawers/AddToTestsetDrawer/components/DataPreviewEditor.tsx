@@ -111,6 +111,8 @@ export function DataPreviewEditor({
                 focusPath={focusPath}
                 onFocusPathHandled={onFocusPathHandled}
                 onPropertyClick={onPropertyClick}
+                // Exclude parameters from the default view - they're not testset-relevant
+                excludeKeys={["parameters"]}
             />
         </div>
     )
