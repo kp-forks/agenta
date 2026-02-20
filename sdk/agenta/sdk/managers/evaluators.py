@@ -9,6 +9,7 @@ from agenta.sdk.models.workflows import (
     #
     EvaluatorRevisionResponse,
     #
+    SimpleEvaluator,
     SimpleEvaluatorFlags,
     SimpleEvaluatorData,
     SimpleEvaluatorCreate,
@@ -64,6 +65,25 @@ async def _retrieve_evaluator(
     # print(" --- evaluator_revision:", evaluator_revision)
 
     return evaluator_revision
+
+
+async def _fetch_simple_evaluator(
+    *,
+    evaluator_id: UUID,
+) -> Optional[SimpleEvaluator]:
+    response = authed_api()(
+        method="GET",
+        endpoint=f"/preview/simple/evaluators/{evaluator_id}",
+    )
+
+    if response.status_code == 404:
+        return None
+
+    response.raise_for_status()
+
+    simple_evaluator_response = SimpleEvaluatorResponse(**response.json())
+
+    return simple_evaluator_response.evaluator
 
 
 async def aretrieve(
@@ -212,6 +232,29 @@ async def aupsert(
     # print("Retrieve response:", retrieve_response)
 
     if retrieve_response and retrieve_response.id and retrieve_response.evaluator_id:
+        existing_evaluator_name = None
+        with_name = await _fetch_simple_evaluator(
+            evaluator_id=retrieve_response.evaluator_id
+        )
+        if with_name:
+            existing_evaluator_name = with_name.name
+
+        # TEMPORARY: API simple evaluator edit currently rejects renaming.
+        # Preserve the existing stored name when updating by slug/id so evaluate()
+        # can keep syncing configuration/data without triggering rename failures.
+        if (
+            existing_evaluator_name
+            and name is not None
+            and name != existing_evaluator_name
+        ):
+            print(
+                "[INFO]: Renaming evaluators is temporarily disabled. "
+                f"Using existing evaluator name '{existing_evaluator_name}'."
+            )
+            name = existing_evaluator_name
+        elif existing_evaluator_name and name is None:
+            name = existing_evaluator_name
+
         evaluator_id = retrieve_response.evaluator_id
         # print(" --- Updating evaluator...", evaluator_id)
         evaluator_edit_request = SimpleEvaluatorEdit(
@@ -244,6 +287,7 @@ async def aupsert(
             response.raise_for_status()
         except Exception as e:
             print("[ERROR]: Failed to update evaluator:", e)
+            print("[ERROR]: API response:", response.text)
             print_exc()
             return None
 
@@ -279,6 +323,7 @@ async def aupsert(
             response.raise_for_status()
         except Exception as e:
             print("[ERROR]: Failed to create evaluator:", e)
+            print("[ERROR]: API response:", response.text)
             print_exc()
             return None
 

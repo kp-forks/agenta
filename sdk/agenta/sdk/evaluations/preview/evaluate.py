@@ -69,6 +69,67 @@ class EvaluateSpecs(BaseModel):
     repeats: Optional[int] = None
 
 
+_ALLOWED_ORIGINS = {"custom", "human", "auto"}
+
+
+def _normalize_step_id(step_id: Any) -> Optional[str]:
+    if step_id is None:
+        return None
+
+    if isinstance(step_id, UUID):
+        return str(step_id)
+
+    try:
+        return str(UUID(str(step_id)))
+    except Exception:
+        return None
+
+
+def _normalize_target_steps(
+    *,
+    steps: Any,
+    step_name: str,
+) -> Dict[str, Origin]:
+    if not steps or not isinstance(steps, dict):
+        raise ValueError(
+            f"Invalid 'evaluate()' specs: missing or invalid {step_name}",
+        )
+
+    normalized_steps: Dict[str, Origin] = {}
+    invalid_step_ids = 0
+    invalid_origins = 0
+
+    for step_id, origin in steps.items():
+        normalized_step_id = _normalize_step_id(step_id)
+        if not normalized_step_id:
+            invalid_step_ids += 1
+            continue
+
+        if origin not in _ALLOWED_ORIGINS:
+            invalid_origins += 1
+            continue
+
+        normalized_steps[normalized_step_id] = origin
+
+    if invalid_step_ids or invalid_origins:
+        errors: List[str] = []
+        if invalid_step_ids:
+            errors.append(f"{invalid_step_ids} invalid id(s)")
+        if invalid_origins:
+            errors.append(f"{invalid_origins} invalid origin(s)")
+
+        raise ValueError(
+            f"Invalid 'evaluate()' specs: invalid {step_name} ({', '.join(errors)})",
+        )
+
+    if not normalized_steps:
+        raise ValueError(
+            f"Invalid 'evaluate()' specs: missing or invalid {step_name}",
+        )
+
+    return normalized_steps
+
+
 async def _parse_evaluate_kwargs(
     *,
     testsets: Optional[Target] = None,
@@ -129,16 +190,18 @@ async def _upsert_entities(
                                 data=testcases_data,
                             )
                             if created_revision and created_revision.id:
-                                testset_steps[str(created_revision.id)] = "custom"
+                                normalized_revision_id = _normalize_step_id(
+                                    created_revision.id
+                                )
+                                if normalized_revision_id:
+                                    testset_steps[normalized_revision_id] = "custom"
 
             simple_evaluation_data.testset_steps = testset_steps
 
-    if not simple_evaluation_data.testset_steps or not isinstance(
-        simple_evaluation_data.testset_steps, dict
-    ):
-        raise ValueError(
-            "Invalid 'evaluate()' specs: missing or invalid testset steps",
-        )
+    simple_evaluation_data.testset_steps = _normalize_target_steps(
+        steps=simple_evaluation_data.testset_steps,
+        step_name="testset steps",
+    )
 
     if simple_evaluation_data.application_steps:
         if isinstance(simple_evaluation_data.application_steps, list):
@@ -149,28 +212,40 @@ async def _upsert_entities(
                 for application_revision_id in simple_evaluation_data.application_steps
             ):
                 for application_revision_id in simple_evaluation_data.application_steps:
-                    if isinstance(application_revision_id, UUID):
-                        application_steps[str(application_revision_id)] = "custom"
+                    normalized_revision_id = _normalize_step_id(application_revision_id)
+                    if normalized_revision_id:
+                        application_steps[normalized_revision_id] = "custom"
 
             elif all(
                 callable(application_handler)
                 for application_handler in simple_evaluation_data.application_steps
             ):
+                failed_application_upserts = 0
                 for application_handler in simple_evaluation_data.application_steps:
                     if callable(application_handler):
                         application_revision_id = await aupsert_application(
                             handler=application_handler,
                         )
-                        application_steps[str(application_revision_id)] = "custom"
+                        normalized_revision_id = _normalize_step_id(
+                            application_revision_id
+                        )
+                        if not normalized_revision_id:
+                            failed_application_upserts += 1
+                            continue
+
+                        application_steps[normalized_revision_id] = "custom"
+
+                if failed_application_upserts:
+                    raise ValueError(
+                        "Invalid 'evaluate()' specs: failed to upsert one or more applications",
+                    )
 
             simple_evaluation_data.application_steps = application_steps
 
-    if not simple_evaluation_data.application_steps or not isinstance(
-        simple_evaluation_data.application_steps, dict
-    ):
-        raise ValueError(
-            "Invalid 'evaluate()' specs: missing or invalid application steps",
-        )
+    simple_evaluation_data.application_steps = _normalize_target_steps(
+        steps=simple_evaluation_data.application_steps,
+        step_name="application steps",
+    )
 
     if simple_evaluation_data.evaluator_steps:
         if isinstance(simple_evaluation_data.evaluator_steps, list):
@@ -181,28 +256,40 @@ async def _upsert_entities(
                 for evaluator_revision_id in simple_evaluation_data.evaluator_steps
             ):
                 for evaluator_revision_id in simple_evaluation_data.evaluator_steps:
-                    if isinstance(evaluator_revision_id, UUID):
-                        evaluator_steps[str(evaluator_revision_id)] = "custom"
+                    normalized_revision_id = _normalize_step_id(evaluator_revision_id)
+                    if normalized_revision_id:
+                        evaluator_steps[normalized_revision_id] = "custom"
 
             elif all(
                 callable(evaluator_handler)
                 for evaluator_handler in simple_evaluation_data.evaluator_steps
             ):
+                failed_evaluator_upserts = 0
                 for evaluator_handler in simple_evaluation_data.evaluator_steps:
                     if callable(evaluator_handler):
                         evaluator_revision_id = await aupsert_evaluator(
                             handler=evaluator_handler,
                         )
-                        evaluator_steps[str(evaluator_revision_id)] = "custom"
+                        normalized_revision_id = _normalize_step_id(
+                            evaluator_revision_id
+                        )
+                        if not normalized_revision_id:
+                            failed_evaluator_upserts += 1
+                            continue
+
+                        evaluator_steps[normalized_revision_id] = "custom"
+
+                if failed_evaluator_upserts:
+                    raise ValueError(
+                        "Invalid 'evaluate()' specs: failed to upsert one or more evaluators",
+                    )
 
             simple_evaluation_data.evaluator_steps = evaluator_steps
 
-    if not simple_evaluation_data.evaluator_steps or not isinstance(
-        simple_evaluation_data.evaluator_steps, dict
-    ):
-        raise ValueError(
-            "Invalid 'evaluate()' specs: missing or invalid evaluator steps",
-        )
+    simple_evaluation_data.evaluator_steps = _normalize_target_steps(
+        steps=simple_evaluation_data.evaluator_steps,
+        step_name="evaluator steps",
+    )
 
     return simple_evaluation_data
 
