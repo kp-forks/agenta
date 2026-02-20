@@ -269,9 +269,16 @@ async def aupsert(
 
     if retrieve_response and retrieve_response.id and retrieve_response.application_id:
         existing_application_name = None
-        with_name = await _fetch_simple_application(
-            application_id=retrieve_response.application_id
-        )
+        try:
+            with_name = await _fetch_simple_application(
+                application_id=retrieve_response.application_id
+            )
+        except ValueError as e:
+            print(
+                "[WARN]: Failed to fetch existing application for name preservation; "
+                f"continuing without it: {e}"
+            )
+            with_name = None
         if with_name:
             existing_application_name = with_name.name
 
