@@ -85,13 +85,13 @@ This branch contains older entities and APIs. The solution should favor simple a
 - Audit events for create/rename/delete and assign/unassign.
 - Validate input length/characters to prevent abuse.
 
-## 10. Alternatives Considered
+## 9. Alternatives Considered
 
 - JSON array of tags on each entity: simpler writes, harder querying.
 - Separate per-entity tag tables: explicit, but duplicated logic and maintenance.
 - Global tags across workspaces: simpler discovery, weaker isolation.
 
-## 11. Open Questions
+## 10. Open Questions
 
 1. Should tag names be mutable after creation?
 2. Is `entity_type` enum stable enough on this branch?
